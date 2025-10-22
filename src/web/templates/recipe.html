@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}{{ recipe.title }} - Cooklang Federation{% endblock %}
+
+{% block content %}
+<div class="container-recipe py-8">
+    <!-- Hero Image -->
+    {% if !recipe.image_url.is_empty() %}
+    <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="recipe-image mb-8">
+    {% endif %}
+
+    <!-- Recipe Header -->
+    <div class="recipe-card p-8 mb-6">
+        <h1 class="gradient-title text-5xl mb-6 text-balance">{{ recipe.title }}</h1>
+
+        <!-- Display metadata from parsed recipe (like cookcli) -->
+        {% if let Some(metadata) = recipe.metadata %}
+            <!-- Description if present -->
+            {% if let Some(description) = metadata.description %}
+            <p class="text-gray-700 mb-4 italic">{{ description }}</p>
+            {% endif %}
+
+            <!-- Metadata Pills -->
+            <div class="flex flex-wrap gap-3 mb-6">
+                {% if let Some(servings) = metadata.servings %}
+                <div class="metadata-pill">
+                    <span class="emoji">👥</span>
+                    <span><strong>{{ servings }}</strong> servings</span>
+                </div>
+                {% endif %}
+
+                {% if let Some(time) = metadata.time %}
+                <div class="metadata-pill">
+                    <span class="emoji">⏱️</span>
+                    <span><strong>{{ time }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(difficulty) = metadata.difficulty %}
+                <div class="metadata-pill">
+                    <span class="emoji">📊</span>
+                    <span><strong>{{ difficulty }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(course) = metadata.course %}
+                <div class="metadata-pill">
+                    <span class="emoji">🍽️</span>
+                    <span><strong>{{ course }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(prep_time) = metadata.prep_time %}
+                <div class="metadata-pill">
+                    <span class="emoji">⏱️</span>
+                    <span>Prep: <strong>{{ prep_time }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(cook_time) = metadata.cook_time %}
+                <div class="metadata-pill">
+                    <span class="emoji">🔥</span>
+                    <span>Cook: <strong>{{ cook_time }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(cuisine) = metadata.cuisine %}
+                <div class="metadata-pill">
+                    <span class="emoji">🌍</span>
+                    <span><strong>{{ cuisine }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(diet) = metadata.diet %}
+                <div class="metadata-pill">
+                    <span class="emoji">🥗</span>
+                    <span><strong>{{ diet }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(author) = metadata.author %}
+                <div class="metadata-pill">
+                    <span class="emoji">👤</span>
+                    <span><strong>{{ author }}</strong></span>
+                </div>
+                {% endif %}
+
+                <!-- Custom metadata -->
+                {% for (key, value) in metadata.custom %}
+                <div class="metadata-pill">
+                    <span><strong>{{ key }}:</strong> {{ value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <!-- Fallback to database metadata if parsed metadata is not available -->
+            {% if !recipe.summary.is_empty() %}
+            <div class="summary-box">{{ recipe.summary }}</div>
+            {% endif %}
+
+            <div class="flex flex-wrap gap-3 mb-6">
+                {% if !recipe.total_time_minutes.is_empty() %}
+                <div class="metadata-pill">
+                    <span class="emoji">⏱️</span>
+                    <span><strong>{{ recipe.total_time_minutes }}</strong> min</span>
+                </div>
+                {% endif %}
+
+                {% if !recipe.active_time_minutes.is_empty() %}
+                <div class="metadata-pill">
+                    <span class="emoji">👨‍🍳</span>
+                    <span><strong>{{ recipe.active_time_minutes }}</strong> min active</span>
+                </div>
+                {% endif %}
+
+                {% if !recipe.servings.is_empty() %}
+                <div class="metadata-pill">
+                    <span class="emoji">👥</span>
+                    <span><strong id="servings-display">{{ recipe.servings }}</strong> servings</span>
+                </div>
+                {% endif %}
+
+                {% if !recipe.difficulty.is_empty() %}
+                <div class="metadata-pill">
+                    <span class="emoji">📊</span>
+                    <span><strong>{{ recipe.difficulty }}</strong></span>
+                </div>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        <!-- Tags from parsed metadata -->
+        {% if let Some(metadata) = recipe.metadata %}
+            {% if !metadata.tags.is_empty() %}
+            <div class="flex flex-wrap gap-2 mb-6">
+                {% for tag in metadata.tags %}
+                <span class="tag">#{{ tag }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% else %}
+            <!-- Fallback to database tags if metadata not available -->
+            {% if !recipe.tags.is_empty() %}
+            <div class="flex flex-wrap gap-2 mb-6">
+                {% for tag in recipe.tags %}
+                <span class="tag">{{ tag }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endif %}
+
+        <!-- Feed Info -->
+        <div class="border-t border-gray-200 pt-4 text-sm text-gray-600">
+            <p>From: <a href="/recipes?feed_id={{ recipe.feed.id }}" class="font-semibold text-orange-600 hover:text-orange-700 hover:underline">{{ recipe.feed.title }}</a>
+            {% if !recipe.feed.author.is_empty() %} by {{ recipe.feed.author }}{% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Recipe Grid: Ingredients Sidebar + Instructions (cookcli style) -->
+    {% if let Some(sections) = recipe.parsed_sections %}
+    <div class="grid md:grid-cols-3 gap-8 mb-8">
+        <!-- Ingredients Sidebar -->
+        <div class="md:col-span-1">
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                <h2 class="text-xl font-bold mb-4 text-orange-600">🥘 Ingredients</h2>
+
+                <ul class="space-y-3">
+                    {% for ingredient in recipe.ingredients %}
+                    <li class="flex justify-between items-center bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg px-3 py-2">
+                        <span class="font-medium">{{ ingredient.name }}</span>
+                        <span class="text-orange-700 font-semibold ingredient-quantity" data-original-quantity="{{ ingredient.quantity }}" data-unit="{{ ingredient.unit }}">
+                            {% if !ingredient.quantity.is_empty() %}
+                                <span class="quantity-value">{{ ingredient.quantity }}</span>
+                            {% endif %}
+                            {% if !ingredient.unit.is_empty() %} {{ ingredient.unit }}{% endif %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <!-- Cookware Section -->
+            {% if !recipe.cookware.is_empty() %}
+            <div class="bg-white rounded-2xl shadow-lg p-6 mt-6">
+                <h2 class="text-xl font-bold mb-4 text-green-600">🍳 Cookware</h2>
+                <ul class="space-y-2">
+                    {% for item in recipe.cookware %}
+                    <li class="flex items-center bg-gradient-to-r from-green-50 to-teal-50 rounded-lg px-3 py-2">
+                        <span class="font-medium">{{ item }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Instructions Main Content -->
+        <div class="md:col-span-2">
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                {% for section in sections %}
+                    {% if let Some(name) = section.name %}
+                    <h3 class="text-xl font-semibold mt-6 mb-4 text-orange-700 border-b-2 border-orange-200 pb-2">{{ name }}</h3>
+                    {% endif %}
+
+                    {% if !section.notes.is_empty() %}
+                    <div class="mb-4">
+                        {% for note in section.notes %}
+                        <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4 mb-3 border-l-4 border-blue-400">
+                            <div class="flex items-start gap-2">
+                                <span class="text-blue-600">📝</span>
+                                <p class="text-gray-700 italic">{{ note }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <ol class="space-y-4 {% if !loop.first %}mt-4{% endif %}">
+                        {% for step in section.steps %}
+                        <li class="bg-gradient-to-r from-gray-50 to-orange-50 rounded-xl p-4">
+                            <div class="flex gap-4">
+                                <div class="step-number">{{ loop.index }}</div>
+                                <div class="flex-1">
+                                    <div class="text-gray-700 mb-2 leading-8">
+                                        {% for item in step.items %}
+                                            {% match item %}
+                                                {% when crate::indexer::cooklang_parser::StepItem::Text with { value } %}{{ value }}{% when crate::indexer::cooklang_parser::StepItem::Ingredient with { index, name } %}<span class="ingredient-badge">{{ name }}</span>{% when crate::indexer::cooklang_parser::StepItem::Cookware with { index, name } %}<span class="cookware-badge">{{ name }}</span>{% when crate::indexer::cooklang_parser::StepItem::Timer with { index, text } %}<span class="timer-badge">{{ text }}</span>{% when crate::indexer::cooklang_parser::StepItem::Quantity with { value } %}<span class="font-bold text-orange-600">{{ value }}</span>{% endmatch %}{% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Actions -->
+    <div class="recipe-card p-6 mb-6 no-print">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Actions</h2>
+        <div class="flex flex-wrap gap-4">
+            <a
+                href="/api/recipes/{{ recipe.id }}/download"
+                class="action-button action-button-primary"
+            >
+                <span>📥</span>
+                <span>Download .cook File</span>
+            </a>
+
+            <button
+                onclick="window.print()"
+                class="action-button action-button-primary"
+            >
+                <span>🖨️</span>
+                <span>Print Recipe</span>
+            </button>
+
+            {% if !recipe.source_url.is_empty() %}
+            <a
+                href="{{ recipe.source_url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="action-button action-button-secondary"
+            >
+                <span>🔗</span>
+                <span>View Original</span>
+            </a>
+            {% endif %}
+
+            <button
+                onclick="navigator.clipboard.writeText(window.location.href); this.innerHTML = '<span>✓</span><span>Copied!</span>'; setTimeout(() => this.innerHTML = '<span>📋</span><span>Copy Link</span>', 2000)"
+                class="action-button action-button-secondary"
+            >
+                <span>📋</span>
+                <span>Copy Link</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Back to Search -->
+    <div class="text-center no-print">
+        <a href="/" class="text-orange-600 hover:text-orange-700 font-semibold">← Back to Search</a>
+    </div>
+</div>
+
+<script>
+    function parseQuantity(qtyStr) {
+        if (!qtyStr || qtyStr.trim() === '') return null;
+
+        // Handle fractions like "1/2", "1 1/2", etc.
+        const fractionMatch = qtyStr.match(/(\d+)?\s*(\d+)\/(\d+)/);
+        if (fractionMatch) {
+            const whole = fractionMatch[1] ? parseInt(fractionMatch[1]) : 0;
+            const numerator = parseInt(fractionMatch[2]);
+            const denominator = parseInt(fractionMatch[3]);
+            return whole + (numerator / denominator);
+        }
+
+        // Handle decimals
+        const num = parseFloat(qtyStr);
+        return isNaN(num) ? null : num;
+    }
+
+    function formatQuantity(qty) {
+        if (qty === null || qty === undefined) return '';
+
+        // Round to 2 decimal places
+        const rounded = Math.round(qty * 100) / 100;
+
+        // Try to convert to fraction if it's a common fraction
+        const fractions = {
+            0.25: '¼',
+            0.33: '⅓',
+            0.5: '½',
+            0.66: '⅔',
+            0.75: '¾'
+        };
+
+        const whole = Math.floor(rounded);
+        const decimal = rounded - whole;
+
+        // Check if decimal part matches a common fraction
+        for (const [dec, frac] of Object.entries(fractions)) {
+            if (Math.abs(decimal - dec) < 0.05) {
+                return whole > 0 ? `${whole} ${frac}` : frac;
+            }
+        }
+
+        // Otherwise just show the number
+        return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(2).replace(/\.?0+$/, '');
+    }
+
+</script>
+{% endblock %}

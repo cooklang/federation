@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Search Recipes - Cooklang Federation{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Search Header -->
+    <div class="text-center mb-8">
+        <h1 class="text-4xl font-bold text-gray-900 mb-2">Discover Recipes</h1>
+        <p class="text-gray-600">Search across federated recipe collections</p>
+    </div>
+
+    <!-- Search Form -->
+    <div id="search-container" class="bg-white rounded-lg shadow-md p-6 mb-8">
+        <form method="GET" action="/">
+            <div class="flex gap-2">
+                <input
+                    id="search-input"
+                    type="text"
+                    name="q"
+                    value="{{ query }}"
+                    placeholder="Search query"
+                    class="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                >
+                <button
+                    type="submit"
+                    class="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                >
+                    Search
+                </button>
+            </div>
+            <p class="mt-2 px-4 text-xs text-gray-500">
+                Search by field using <code class="bg-gray-100 px-1 rounded">tags:</code>, <code class="bg-gray-100 px-1 rounded">title:</code>, <code class="bg-gray-100 px-1 rounded">ingredients:</code>, or <code class="bg-gray-100 px-1 rounded">total_time:</code>. Combine terms with <code class="bg-gray-100 px-1 rounded">AND</code> / <code class="bg-gray-100 px-1 rounded">OR</code>, exclude with <code class="bg-gray-100 px-1 rounded">-</code>, use ranges like <code class="bg-gray-100 px-1 rounded">[0 TO 30]</code>, and quotes for multi-word values.
+            </p>
+        </form>
+    </div>
+
+    <!-- Results -->
+    {% if !results.is_empty() %}
+    <div class="mb-6">
+        <p class="text-gray-600">Found {{ total }} recipes (page {{ page }} of {{ total_pages }})</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        {% for recipe in results %}
+        <a href="/recipes/{{ recipe.id }}" class="recipe-card bg-white rounded-lg shadow-md overflow-hidden block">
+            {% if !recipe.image_url.is_empty() %}
+            <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="w-full h-48 object-cover">
+            {% else %}
+            <div class="w-full h-48 bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center">
+                <span class="text-6xl">🍳</span>
+            </div>
+            {% endif %}
+
+            <div class="p-4">
+                <h3 class="text-xl font-semibold text-gray-900 mb-2">{{ recipe.title }}</h3>
+
+                {% if !recipe.summary.is_empty() %}
+                <p class="text-gray-600 text-sm mb-3 line-clamp-2">{{ recipe.summary }}</p>
+                {% endif %}
+
+                <div class="flex flex-wrap gap-2 mb-3">
+                    {% for tag in recipe.tags %}
+                    <span class="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">{{ tag }}</span>
+                    {% endfor %}
+                </div>
+
+                <div class="flex items-center text-sm text-gray-500 space-x-4">
+                    {% if !recipe.total_time_minutes.is_empty() %}
+                    <span>⏱️ {{ recipe.total_time_minutes }}m</span>
+                    {% endif %}
+                    {% if !recipe.servings.is_empty() %}
+                    <span>👥 {{ recipe.servings }}</span>
+                    {% endif %}
+                    {% if !recipe.difficulty.is_empty() %}
+                    <span>📊 {{ recipe.difficulty }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="flex justify-center space-x-2">
+        {% if page > 1 %}
+        <a href="?q={{ query }}&page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            Previous
+        </a>
+        {% endif %}
+
+        <span class="px-4 py-2 bg-orange-600 text-white rounded-lg">
+            Page {{ page }} of {{ total_pages }}
+        </span>
+
+        {% if page < total_pages %}
+        <a href="?q={{ query }}&page={{ page + 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            Next
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-12">
+        <div class="text-6xl mb-4">🔍</div>
+        {% if query.is_empty() %}
+        <p class="text-gray-600 text-lg">Enter a search query above to find recipes</p>
+        {% else %}
+        <p class="text-gray-600 text-lg">No recipes found. Try a different search!</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // Scroll to search container when results are displayed
+    {% if !results.is_empty() || (!query.is_empty() && results.is_empty()) %}
+    window.addEventListener('DOMContentLoaded', function() {
+        const searchContainer = document.getElementById('search-container');
+        if (searchContainer) {
+            searchContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+    {% endif %}
+</script>
+{% endblock %}

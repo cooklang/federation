@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  app:
+    image: ghcr.io/cooklang/federation:0.1.0
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: sqlite:/app/data/federation.db
+      HOST: 0.0.0.0
+      PORT: 3000
+      API_RATE_LIMIT: 100
+      CRAWLER_INTERVAL: 3600
+      MAX_FEED_SIZE: 5242880
+      MAX_RECIPE_SIZE: 1048576
+      RATE_LIMIT: 1
+      INDEX_PATH: /app/data/index
+      RUST_LOG: info,federation=debug
+    volumes:
+      - federation-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  federation-data:

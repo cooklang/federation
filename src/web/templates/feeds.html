@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Recipe Feeds - Cooklang Federation{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header -->
+    <div class="text-center mb-8">
+        <h1 class="text-4xl font-bold text-gray-900 mb-2">Recipe Feeds</h1>
+        <p class="text-gray-600">Discover federated recipe collections</p>
+    </div>
+
+    <!-- Feed Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-3xl font-bold text-orange-600">{{ stats.total_feeds }}</div>
+            <div class="text-gray-600">Total Feeds</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-3xl font-bold text-green-600">{{ stats.active_feeds }}</div>
+            <div class="text-gray-600">Active Feeds</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-3xl font-bold text-blue-600">{{ stats.total_recipes }}</div>
+            <div class="text-gray-600">Total Recipes</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-3xl font-bold text-purple-600">{{ stats.total_tags }}</div>
+            <div class="text-gray-600">Total Tags</div>
+        </div>
+    </div>
+
+    <!-- Feeds List -->
+    {% if !feeds.is_empty() %}
+    <div class="space-y-4 mb-8">
+        {% for feed in feeds %}
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex items-start justify-between">
+                <div class="flex-1">
+                    <h3 class="text-xl font-semibold text-gray-900 mb-1">
+                        {{ feed.title }}
+                    </h3>
+                    {% if !feed.author.is_empty() %}
+                    <p class="text-gray-600 text-sm mb-2">by {{ feed.author }}</p>
+                    {% endif %}
+
+                    <p class="text-gray-500 text-sm mb-3 break-all">{{ feed.url }}</p>
+
+                    <div class="flex items-center gap-4 text-sm text-gray-600">
+                        <span class="flex items-center">
+                            📚 {{ feed.recipe_count }} recipes
+                        </span>
+                        {% if !feed.last_fetched_at.is_empty() %}
+                        <span class="flex items-center">
+                            🔄 Last updated: {{ feed.last_fetched_at }}
+                        </span>
+                        {% endif %}
+                        <span class="px-2 py-1 rounded-full text-xs {% if feed.status == "active" %}bg-green-100 text-green-800{% else if feed.status == "error" %}bg-red-100 text-red-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                            {{ feed.status }}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="ml-4">
+                    <a
+                        href="/recipes?feed_id={{ feed.id }}"
+                        class="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 focus:ring-2 focus:ring-orange-500"
+                    >
+                        View Recipes
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="flex justify-center space-x-2">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            Previous
+        </a>
+        {% endif %}
+
+        <span class="px-4 py-2 bg-orange-600 text-white rounded-lg">
+            Page {{ page }} of {{ total_pages }}
+        </span>
+
+        {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            Next
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-12 bg-white rounded-lg shadow-md">
+        <div class="text-6xl mb-4">📡</div>
+        <p class="text-gray-600 text-lg mb-4">No feeds configured yet</p>
+        <p class="text-gray-500">Feeds are managed via <code class="bg-gray-100 px-2 py-1 rounded">config/feeds.yaml</code></p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

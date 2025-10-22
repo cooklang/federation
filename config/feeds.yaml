@@ -1,0 +1,77 @@
+# Cooklang Federation - Feed Configuration
+# Version 1.0
+#
+# Instructions:
+# 1. Fork this repository
+# 2. Add your feed below
+# 3. Submit a pull request
+# 4. Wait for CI validation and approval
+
+version: 1
+
+feeds:
+  # GitHub repository feed
+  - url: "https://github.com/dubadub/cookbook"
+    title: "DubaDub's Cookbook"
+    feed_type: github
+    enabled: true
+    tags:
+      - cookbook
+      - github
+    notes: "Personal cookbook repository"
+    added_by: "@dubadub"
+    added_at: "2025-10-13"
+
+  - url: "https://github.com/ornicar/recipes"
+    title: "[FR] My vegan recipes in cooklang"
+    feed_type: github
+    branch: "master"
+    enabled: true
+    tags:
+      - cookbook
+      - github
+    notes: "Personal cookbook repository"
+    added_by: "@dubadub"
+    added_at: "2025-10-13"
+
+  - url: "https://github.com/simcard0000/recipes"
+    title: "recipes"
+    feed_type: github
+    branch: "main"
+    enabled: true
+    tags:
+      - cookbook
+      - github
+    notes: "🏺 Dishes from my family and other sources."
+    added_by: "@dubadub"
+    added_at: "2025-10-13"
+
+
+
+  # Example RSS/Atom feed (disabled by default)
+  # - url: "https://example.com/recipes/feed.xml"
+  #   title: "Example Recipe Collection"
+  #   feed_type: web
+  #   enabled: false
+  #   tags:
+  #     - example
+  #   notes: "Sample RSS/Atom feed for testing - disabled by default"
+  #   added_by: "@system"
+  #   added_at: "2025-10-13"
+  #   disabled_at: "2025-10-13"
+  #   disabled_by: "@system"
+  #   disabled_reason: "Example feed - disabled by default"
+
+# Validation configuration
+validation:
+  max_feeds: 1000
+  allowed_protocols:
+    - https
+    - http
+  url_patterns:
+    deny:
+      - "*localhost*"
+      - "*127.0.0.1*"
+      - "*192.168.*"
+      - "*10.0.*"
+      - "*.local"

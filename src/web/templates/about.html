@@ -1,0 +1,1035 @@
+{% extends "base.html" %}
+
+{% block title %}About - Cooklang Federation{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <h1 class="text-4xl font-bold text-gray-900 mb-8">About Cooklang Federation</h1>
+
+    <!-- Executive Summary -->
+    <div class="bg-gradient-to-r from-orange-50 to-orange-100 border-l-4 border-orange-500 rounded-lg p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-3">What is This?</h2>
+        <p class="text-gray-800 mb-4 text-lg">
+            Cooklang Federation is a <strong>decentralized recipe discovery system</strong> that allows anyone to publish and share recipes
+            in the <a href="https://cooklang.org" class="text-orange-600 hover:text-orange-700 underline font-medium">Cooklang format</a> without relying on a central platform.
+        </p>
+        <p class="text-gray-700">
+            Think of it as a search engine for recipes that respects your ownership and independence. Publishers host their own recipes,
+            consumers discover them through this federation, and everyone benefits from an open, decentralized ecosystem.
+        </p>
+    </div>
+
+    <!-- Core Principles -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Core Principles</h2>
+        <p class="text-gray-700 mb-4">
+            Unlike traditional recipe websites that lock your content into proprietary platforms, Cooklang Federation is built on
+            principles of decentralization and data ownership:
+        </p>
+        <div class="grid md:grid-cols-2 gap-4">
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h3 class="font-semibold text-gray-900 mb-2 flex items-center">
+                    <svg class="h-4 w-4 text-orange-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    You Own Your Content
+                </h3>
+                <p class="text-gray-700 text-sm">Host your recipes wherever you want - GitHub Pages, Netlify, your own server, or any static hosting service.</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h3 class="font-semibold text-gray-900 mb-2 flex items-center">
+                    <svg class="h-4 w-4 text-orange-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Simple & Fast
+                </h3>
+                <p class="text-gray-700 text-sm">No database required. Plain text recipes and RSS/Atom feeds - the same battle-tested technology that powers podcasts and blogs.</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h3 class="font-semibold text-gray-900 mb-2 flex items-center">
+                    <svg class="h-4 w-4 text-orange-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    No Vendor Lock-in
+                </h3>
+                <p class="text-gray-700 text-sm">Switch hosting providers, change domains, or take your recipes offline anytime. You control the distribution.</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h3 class="font-semibold text-gray-900 mb-2 flex items-center">
+                    <svg class="h-4 w-4 text-orange-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                    </svg>
+                    Open Standards
+                </h3>
+                <p class="text-gray-700 text-sm">Based on Atom/RSS syndication and the open Cooklang specification. Works with existing tools and readers.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- How It Works -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">How It Works</h2>
+        <p class="text-gray-700 mb-6">
+            Cooklang Federation uses a two-tier content model that keeps things lightweight and scalable:
+        </p>
+
+        <div class="space-y-6">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-lg mr-4">1</div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Publishers Create Feeds</h3>
+                    <p class="text-gray-700">
+                        Recipe authors create an RSS/Atom feed listing their recipes with metadata (title, tags, cooking time, etc.).
+                        The feed contains summaries only, keeping it small and fast to parse.
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-start">
+                <div class="flex-shrink-0 h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-lg mr-4">2</div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Federation Crawls & Indexes</h3>
+                    <p class="text-gray-700">
+                        This federation server periodically crawls registered feeds, fetches the full <code class="bg-gray-100 px-2 py-1 rounded text-sm">.cook</code> files
+                        from the enclosure links, and indexes them with a full-text search engine (Tantivy).
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-start">
+                <div class="flex-shrink-0 h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-lg mr-4">3</div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Users Search & Discover</h3>
+                    <p class="text-gray-700">
+                        Anyone can search across all indexed recipes using the web UI or API. Results include filtering by tags,
+                        ingredients, cooking time, and difficulty. Click a recipe to see the full content or download the <code class="bg-gray-100 px-2 py-1 rounded text-sm">.cook</code> file.
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-start">
+                <div class="flex-shrink-0 h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-lg mr-4">4</div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Updates Propagate Automatically</h3>
+                    <p class="text-gray-700">
+                        When you update a recipe or add new ones, the crawler detects changes in your feed and re-indexes only what changed.
+                        No manual notifications needed - the system stays in sync automatically.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GitOps Workflow Banner -->
+    <div class="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-6 mb-6">
+        <div class="flex items-start">
+            <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+            <div class="ml-3 flex-1">
+                <h3 class="text-lg font-medium text-blue-900">Feed Registration via GitOps</h3>
+                <div class="mt-2 text-sm text-blue-700">
+                    <p class="mb-3">This federation instance uses a GitOps workflow for managing feed registrations. This means feeds are registered through version control, not through API calls.</p>
+                    <p class="mb-2 font-semibold">To add or modify feeds:</p>
+                    <ol class="list-decimal list-inside space-y-1 ml-2 mb-3">
+                        <li>Fork the federation repository on GitHub</li>
+                        <li>Edit <code class="bg-blue-100 px-2 py-0.5 rounded">config/feeds.yaml</code> to add your feed URL and metadata</li>
+                        <li>Submit a pull request with your changes</li>
+                        <li>Wait for automated CI validation and maintainer approval</li>
+                        <li>Once merged, the crawler will automatically discover your recipes</li>
+                    </ol>
+                    <div class="bg-blue-100 rounded p-3 mb-2">
+                        <p class="font-semibold mb-1">Benefits of GitOps:</p>
+                        <ul class="list-disc list-inside space-y-1 ml-2">
+                            <li>Full version control and audit trail</li>
+                            <li>Peer review process before feeds go live</li>
+                            <li>Automated validation (feed syntax, accessibility, content checks)</li>
+                            <li>Easy rollback if issues arise</li>
+                            <li>Transparent change history</li>
+                        </ul>
+                    </div>
+                    <p class="mt-3">
+                        See the repository's <a href="https://github.com/your-org/federation/blob/main/config/README.md" class="underline font-medium hover:text-blue-900">config/README.md</a> for detailed instructions and feed format examples.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- How to Publish Your Recipes -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">How to Publish Your Recipes</h2>
+        <p class="text-gray-700 mb-6">
+            Publishing your recipes to the federation is a straightforward process. Follow these steps to make your recipes discoverable:
+        </p>
+
+        <div class="space-y-6">
+            <!-- Step 1 -->
+            <div class="border-l-4 border-orange-500 pl-4">
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">Step 1: Write Recipes in Cooklang Format</h3>
+                <p class="text-gray-700 mb-3">
+                    Create <code class="bg-gray-100 px-2 py-1 rounded">.cook</code> files using the Cooklang markup language.
+                    Cooklang is a plain-text format that's both human-readable and machine-parseable.
+                </p>
+                <p class="text-gray-700 mb-2 font-medium">Example recipe file (<code class="bg-gray-100 px-2 py-1 rounded">chocolate-cookies.cook</code>):</p>
+                <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm mb-3"><code>---
+servings: 24
+time: 45 minutes
+tags: dessert, cookies, baking
+difficulty: easy
+---
+
+Preheat #oven to 180°C.
+
+Cream @butter{200%g} and @sugar{150%g} together for ~{5%minutes} until fluffy.
+
+Add @eggs{2} and @vanilla extract{1%tsp}, mix well.
+
+In a separate bowl, combine @flour{300%g}, @baking soda{1%tsp}, and @salt{1/2%tsp}.
+
+Gradually fold dry ingredients into wet mixture.
+
+Stir in @chocolate chips{200%g}.
+
+Drop spoonfuls onto greased #baking sheet.
+
+Bake for ~{12-15%minutes} until golden brown.
+
+Cool on #wire rack before serving.</code></pre>
+                <div class="bg-gray-50 rounded p-3">
+                    <p class="text-sm text-gray-700">
+                        <strong>Key elements:</strong> <code class="bg-gray-100 px-1 rounded">@ingredients{quantity}</code> for ingredients,
+                        <code class="bg-gray-100 px-1 rounded">#equipment</code> for cookware, <code class="bg-gray-100 px-1 rounded">~{time}</code> for timers,
+                        and <code class="bg-gray-100 px-1 rounded"> metadata</code> for recipe details.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="border-l-4 border-orange-500 pl-4">
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">Step 2: Generate an Atom/RSS Feed</h3>
+                <p class="text-gray-700 mb-3">
+                    Create a feed XML file that lists all your recipes with metadata. You can generate this manually or use the CLI tool.
+                </p>
+
+                <p class="text-gray-700 mb-2 font-medium">Option A: Use the Federation CLI (Recommended)</p>
+                <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm mb-3"><code># Generate feed from a directory of .cook files
+cargo run -- publish --input ./my-recipes --output feed.xml
+
+# This will scan all .cook files and create a properly formatted Atom feed</code></pre>
+
+                <p class="text-gray-700 mb-2 font-medium">Option B: Create manually</p>
+                <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm mb-3"><code>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:cooklang="https://cooklang.org/feeds/1.0"&gt;
+
+  &lt;title&gt;My Recipe Collection&lt;/title&gt;
+  &lt;link href="https://example.com/feed.xml" rel="self"/&gt;
+  &lt;link href="https://example.com/"/&gt;
+  &lt;updated&gt;2025-10-20T12:00:00Z&lt;/updated&gt;
+  &lt;id&gt;https://example.com/feed.xml&lt;/id&gt;
+  &lt;author&gt;
+    &lt;name&gt;Your Name&lt;/name&gt;
+    &lt;uri&gt;https://example.com&lt;/uri&gt;
+  &lt;/author&gt;
+
+  &lt;entry&gt;
+    &lt;title&gt;Chocolate Chip Cookies&lt;/title&gt;
+    &lt;id&gt;https://example.com/recipes/chocolate-cookies&lt;/id&gt;
+    &lt;link href="https://example.com/recipes/chocolate-cookies" rel="alternate"/&gt;
+    &lt;link href="https://example.com/recipes/chocolate-cookies.cook" rel="enclosure" type="text/plain"/&gt;
+    &lt;updated&gt;2025-10-20T12:00:00Z&lt;/updated&gt;
+    &lt;summary&gt;Classic chocolate chip cookies with a crispy edge and chewy center.&lt;/summary&gt;
+
+    &lt;cooklang:recipe&gt;
+      &lt;cooklang:servings&gt;24&lt;/cooklang:servings&gt;
+      &lt;cooklang:time total="45" units="minutes"/&gt;
+      &lt;cooklang:tags&gt;
+        &lt;cooklang:tag&gt;dessert&lt;/cooklang:tag&gt;
+        &lt;cooklang:tag&gt;cookies&lt;/cooklang:tag&gt;
+        &lt;cooklang:tag&gt;baking&lt;/cooklang:tag&gt;
+      &lt;/cooklang:tags&gt;
+      &lt;cooklang:difficulty&gt;easy&lt;/cooklang:difficulty&gt;
+    &lt;/cooklang:recipe&gt;
+  &lt;/entry&gt;
+
+  &lt;!-- Add more entries for each recipe --&gt;
+&lt;/feed&gt;</code></pre>
+
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 mt-3">
+                    <p class="text-sm text-yellow-800">
+                        <strong>Important:</strong> The <code class="bg-yellow-100 px-1 rounded">rel="enclosure"</code> link must point directly to the raw
+                        <code class="bg-yellow-100 px-1 rounded">.cook</code> file, not an HTML page. This is how the federation fetches your recipe content.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="border-l-4 border-orange-500 pl-4">
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">Step 3: Host Your Files</h3>
+                <p class="text-gray-700 mb-3">
+                    Upload both your <code class="bg-gray-100 px-2 py-1 rounded">feed.xml</code> and all
+                    <code class="bg-gray-100 px-2 py-1 rounded">.cook</code> files to any static web hosting service. All files must be publicly accessible.
+                </p>
+
+                <div class="grid md:grid-cols-2 gap-4 mb-3">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h4 class="font-semibold text-gray-900 mb-2">GitHub Pages (Free)</h4>
+                        <p class="text-sm text-gray-700 mb-2">Perfect for version-controlled recipes.</p>
+                        <pre class="bg-gray-900 text-gray-100 p-2 rounded text-xs overflow-x-auto"><code>git init
+git add feed.xml recipes/
+git commit -m "Add recipes"
+git push origin main
+# Enable Pages in repo settings</code></pre>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h4 class="font-semibold text-gray-900 mb-2">Netlify/Vercel (Free)</h4>
+                        <p class="text-sm text-gray-700 mb-2">Drag-and-drop deployment with CDN.</p>
+                        <pre class="bg-gray-900 text-gray-100 p-2 rounded text-xs overflow-x-auto"><code># Create a directory structure:
+/
+  feed.xml
+  recipes/
+    cookies.cook
+    pasta.cook
+# Deploy via web UI or CLI</code></pre>
+                    </div>
+                </div>
+
+                <p class="text-gray-700 mb-2"><strong>Requirements:</strong></p>
+                <ul class="list-disc list-inside text-gray-700 space-y-1 ml-4 text-sm">
+                    <li>Feed must be served over HTTPS (recommended for security)</li>
+                    <li>Files must be accessible without authentication</li>
+                    <li>Set <code class="bg-gray-100 px-1 rounded">Content-Type: application/atom+xml</code> for feed.xml</li>
+                    <li>Set <code class="bg-gray-100 px-1 rounded">Content-Type: text/plain; charset=utf-8</code> for .cook files</li>
+                    <li>Enable CORS headers if you want to allow browser-based clients</li>
+                </ul>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="border-l-4 border-orange-500 pl-4">
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">Step 4: Register Your Feed with the Federation</h3>
+                <p class="text-gray-700 mb-3">
+                    Submit a pull request to add your feed to this federation instance. See the GitOps section above for the full process.
+                </p>
+                <p class="text-gray-700 mb-2 font-medium">Quick summary:</p>
+                <ol class="list-decimal list-inside text-gray-700 space-y-2 ml-4 text-sm">
+                    <li>Fork the federation repository</li>
+                    <li>Add your feed URL to <code class="bg-gray-100 px-1 rounded">config/feeds.yaml</code>:
+                        <pre class="bg-gray-900 text-gray-100 p-3 rounded mt-2 overflow-x-auto text-xs"><code>- url: https://example.com/feed.xml
+  name: My Recipe Collection
+  author: Your Name
+  description: A collection of family recipes
+  tags: [desserts, italian, vegetarian]</code></pre>
+                    </li>
+                    <li>Commit and push your changes</li>
+                    <li>Create a pull request with a description of your recipe collection</li>
+                    <li>Wait for CI validation (checks feed accessibility and format)</li>
+                    <li>Once approved and merged, the crawler will index your recipes within 24 hours</li>
+                </ol>
+            </div>
+
+            <!-- Step 5 -->
+            <div class="border-l-4 border-orange-500 pl-4">
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">Step 5: Keep Your Feed Updated</h3>
+                <p class="text-gray-700 mb-3">
+                    The federation crawler checks feeds periodically (typically daily). To propagate updates:
+                </p>
+                <ul class="list-disc list-inside text-gray-700 space-y-2 ml-4 text-sm">
+                    <li>Add new recipes: Add entries to your feed and upload the new .cook files</li>
+                    <li>Update recipes: Modify the .cook file and update the entry's <code class="bg-gray-100 px-1 rounded">&lt;updated&gt;</code> timestamp</li>
+                    <li>Remove recipes: Delete the entry from your feed (the .cook file can remain for archival)</li>
+                    <li>Always update the feed's root <code class="bg-gray-100 px-1 rounded">&lt;updated&gt;</code> timestamp when making changes</li>
+                </ul>
+                <p class="text-gray-700 mt-3 text-sm">
+                    <strong>Tip:</strong> The crawler uses conditional HTTP requests (ETags, Last-Modified headers) to efficiently
+                    detect changes. Make sure your hosting provider supports these headers for optimal performance.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- What is Cooklang? -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">What is Cooklang?</h2>
+        <p class="text-gray-700 mb-4">
+            <a href="https://cooklang.org" class="text-orange-600 hover:text-orange-700 underline font-medium">Cooklang</a> is an
+            open-source markup language specifically designed for writing recipes in plain text. It's the foundation of this federation system.
+        </p>
+
+        <div class="grid md:grid-cols-2 gap-4 mb-4">
+            <div>
+                <h3 class="font-semibold text-gray-900 mb-2">Why Cooklang?</h3>
+                <ul class="space-y-2 text-gray-700 text-sm">
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span><strong>Human-readable:</strong> Recipes look natural and are easy to write by hand</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span><strong>Machine-parseable:</strong> Structured data for ingredients, quantities, and steps</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span><strong>Version-control friendly:</strong> Perfect for Git - diff, merge, and track changes</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span><strong>Tool ecosystem:</strong> CLI tools, mobile apps, web renderers, and more</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span><strong>Future-proof:</strong> Plain text format will work forever, no proprietary lock-in</span>
+                    </li>
+                </ul>
+            </div>
+            <div>
+                <h3 class="font-semibold text-gray-900 mb-2">Key Syntax Elements</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="bg-gray-50 p-2 rounded">
+                        <code class="text-orange-600">@ingredient{quantity%unit}</code>
+                        <p class="text-gray-600 text-xs mt-1">Defines an ingredient with optional quantity and unit</p>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded">
+                        <code class="text-orange-600">#cookware</code>
+                        <p class="text-gray-600 text-xs mt-1">References equipment needed for the recipe</p>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded">
+                        <code class="text-orange-600">~{time%unit}</code>
+                        <p class="text-gray-600 text-xs mt-1">Sets a timer with duration</p>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded">
+                        <code class="text-orange-600"> metadata: value</code>
+                        <p class="text-gray-600 text-xs mt-1">Adds structured metadata to the recipe</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-gray-700">
+            Learn more at <a href="https://cooklang.org" class="text-orange-600 hover:text-orange-700 underline font-medium">cooklang.org</a>
+            or read the <a href="https://cooklang.org/docs/spec/" class="text-orange-600 hover:text-orange-700 underline font-medium">full specification</a>.
+        </p>
+    </div>
+
+    <!-- Technical Architecture -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Technical Architecture</h2>
+        <p class="text-gray-700 mb-4">
+            This federation implementation is built with modern, performant technologies designed for reliability and scalability.
+        </p>
+
+        <div class="grid md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">Core Stack</h3>
+                <div class="space-y-3">
+                    <div class="flex items-start">
+                        <div class="bg-orange-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">Rust</p>
+                            <p class="text-sm text-gray-600">High-performance, memory-safe backend</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="bg-orange-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">Axum Web Framework</p>
+                            <p class="text-sm text-gray-600">Fast async web server with Tokio runtime</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="bg-orange-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">Tantivy Search Engine</p>
+                            <p class="text-sm text-gray-600">Blazing-fast full-text search, similar to Lucene</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="bg-orange-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">SQLite Database</p>
+                            <p class="text-sm text-gray-600">Lightweight storage for feeds and metadata</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">Key Features</h3>
+                <div class="space-y-3">
+                    <div class="flex items-start">
+                        <div class="bg-blue-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">Background Scheduler</p>
+                            <p class="text-sm text-gray-600">Automated periodic feed crawling and indexing</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="bg-blue-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">Rate Limiting</p>
+                            <p class="text-sm text-gray-600">API protection with tower-governor middleware</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="bg-blue-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">Tailwind CSS UI</p>
+                            <p class="text-sm text-gray-600">Modern, responsive interface with Askama templates</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start">
+                        <div class="bg-blue-100 rounded p-2 mr-3">
+                            <svg class="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-900">CLI Interface</p>
+                            <p class="text-sm text-gray-600">Command-line tools for searching and publishing</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-6 bg-gray-50 rounded-lg p-4">
+            <h3 class="font-semibold text-gray-900 mb-2">System Architecture</h3>
+            <p class="text-sm text-gray-700 mb-3">
+                The federation follows a crawler-indexer architecture with three main components:
+            </p>
+            <div class="grid md:grid-cols-3 gap-4 text-sm">
+                <div class="bg-white rounded p-3 border border-gray-200">
+                    <p class="font-semibold text-gray-900 mb-1">1. Crawler</p>
+                    <p class="text-gray-600">Periodically fetches feeds from registered publishers, respects rate limits and robots.txt</p>
+                </div>
+                <div class="bg-white rounded p-3 border border-gray-200">
+                    <p class="font-semibold text-gray-900 mb-1">2. Indexer</p>
+                    <p class="text-gray-600">Parses .cook files, extracts content and metadata, builds full-text search index</p>
+                </div>
+                <div class="bg-white rounded p-3 border border-gray-200">
+                    <p class="font-semibold text-gray-900 mb-1">3. Query Engine</p>
+                    <p class="text-gray-600">Serves web UI and API, executes searches with filtering, caches results</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <p class="text-sm text-gray-600">
+                The source code is open source and available on GitHub. Contributions and self-hosting are welcome.
+            </p>
+        </div>
+    </div>
+
+    <!-- Federation Specification -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Federation Specification</h2>
+        <p class="text-gray-700 mb-4">
+            This implementation follows the <strong>Cooklang Federation Specification v1.0</strong>, an open standard that defines
+            how recipes are published, discovered, and indexed across the federated network.
+        </p>
+
+        <div class="space-y-4">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Key Specification Features</h3>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <ul class="space-y-2 text-gray-700 text-sm">
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Based on Atom 1.0 (RFC 4287) and RSS 2.0</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Custom Cooklang XML namespace for recipe metadata</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Two-tier content model (lightweight feeds, full recipe files)</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Enclosure links to raw .cook file content</span>
+                        </li>
+                    </ul>
+                    <ul class="space-y-2 text-gray-700 text-sm">
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Structured metadata (servings, time, tags, difficulty)</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Feed pagination for large recipe collections</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Discovery mechanisms (well-known URLs, HTML links)</span>
+                        </li>
+                        <li class="flex items-start">
+                            <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Validation rules and security considerations</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-semibold text-gray-900 mb-2">Cooklang Namespace Extension</h4>
+                <p class="text-sm text-gray-700 mb-2">
+                    The specification defines a custom XML namespace
+                    (<code class="bg-gray-100 px-1 rounded">https://cooklang.org/feeds/1.0</code>) with elements for:
+                </p>
+                <div class="grid md:grid-cols-2 gap-2 text-sm text-gray-700">
+                    <ul class="space-y-1 ml-4 list-disc">
+                        <li><code class="bg-gray-100 px-1 rounded">&lt;cooklang:servings&gt;</code></li>
+                        <li><code class="bg-gray-100 px-1 rounded">&lt;cooklang:time&gt;</code></li>
+                        <li><code class="bg-gray-100 px-1 rounded">&lt;cooklang:tags&gt;</code></li>
+                        <li><code class="bg-gray-100 px-1 rounded">&lt;cooklang:difficulty&gt;</code></li>
+                    </ul>
+                    <ul class="space-y-1 ml-4 list-disc">
+                        <li><code class="bg-gray-100 px-1 rounded">&lt;cooklang:image&gt;</code></li>
+                        <li><code class="bg-gray-100 px-1 rounded">&lt;cooklang:nutrition&gt;</code></li>
+                        <li>All elements are optional but recommended</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div>
+                <p class="text-gray-700 text-sm">
+                    The full specification document is available in the repository at
+                    <code class="bg-gray-100 px-2 py-1 rounded text-xs">spec.md</code>. It includes complete examples,
+                    validation rules, implementation guidelines, and security considerations.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Documentation -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">API Documentation</h2>
+        <p class="text-gray-700 mb-4">
+            The federation exposes a RESTful JSON API for programmatic access to recipe data. All endpoints are publicly accessible
+            and rate-limited to ensure fair usage.
+        </p>
+
+        <div class="space-y-6">
+            <!-- Search Endpoint -->
+            <div class="border-l-4 border-blue-500 pl-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">Search Recipes</h3>
+                    <span class="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded">GET</span>
+                </div>
+                <p class="text-sm text-gray-600 mb-3">
+                    <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/search</code>
+                </p>
+                <p class="text-gray-700 mb-3 text-sm">Full-text search with filtering by tags, ingredients, time, and difficulty.</p>
+
+                <div class="bg-gray-50 rounded p-3 mb-3">
+                    <p class="text-sm font-semibold text-gray-900 mb-2">Query Parameters:</p>
+                    <table class="w-full text-sm">
+                        <tbody>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">q</td>
+                                <td class="py-1 text-gray-700">Search query (title, ingredients, tags)</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">tags</td>
+                                <td class="py-1 text-gray-700">Comma-separated tag filter (e.g., "dessert,cookies")</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">max_time</td>
+                                <td class="py-1 text-gray-700">Maximum cooking time in minutes</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">difficulty</td>
+                                <td class="py-1 text-gray-700">Filter by difficulty: "easy", "medium", or "hard"</td>
+                            </tr>
+                            <tr>
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">limit</td>
+                                <td class="py-1 text-gray-700">Results per page (default: 20, max: 100)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p class="text-sm font-semibold text-gray-900 mb-1">Example Request:</p>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto mb-3"><code>GET /api/search?q=chocolate+cookies&tags=dessert&max_time=60&limit=10</code></pre>
+
+                <p class="text-sm font-semibold text-gray-900 mb-1">Example Response:</p>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>{
+  "results": [
+    {
+      "id": "123",
+      "title": "Chocolate Chip Cookies",
+      "feed_id": "feed-456",
+      "feed_name": "Jane's Recipes",
+      "author": "Jane Doe",
+      "summary": "Classic chocolate chip cookies...",
+      "tags": ["dessert", "cookies", "baking"],
+      "servings": 24,
+      "time_minutes": 45,
+      "difficulty": "easy",
+      "updated_at": "2025-10-20T12:00:00Z",
+      "recipe_url": "https://example.com/cookies.cook"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 10
+}</code></pre>
+            </div>
+
+            <!-- Recipe Details Endpoint -->
+            <div class="border-l-4 border-blue-500 pl-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">Get Recipe Details</h3>
+                    <span class="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded">GET</span>
+                </div>
+                <p class="text-sm text-gray-600 mb-3">
+                    <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/recipes/:id</code>
+                </p>
+                <p class="text-gray-700 mb-3 text-sm">Retrieve complete recipe metadata including parsed Cooklang content.</p>
+
+                <p class="text-sm font-semibold text-gray-900 mb-1">Example Response:</p>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>{
+  "id": "123",
+  "title": "Chocolate Chip Cookies",
+  "content": "---\nservings: 24\ntime: 45 minutes\n...",
+  "parsed": {
+    "ingredients": [
+      {"name": "butter", "quantity": "200", "units": "g"},
+      {"name": "sugar", "quantity": "150", "units": "g"}
+    ],
+    "steps": ["Preheat oven...", "Cream butter..."]
+  },
+  "metadata": {
+    "servings": 24,
+    "time_minutes": 45,
+    "tags": ["dessert", "cookies"],
+    "difficulty": "easy"
+  },
+  "feed": {
+    "id": "feed-456",
+    "name": "Jane's Recipes",
+    "author": "Jane Doe",
+    "url": "https://example.com/feed.xml"
+  }
+}</code></pre>
+            </div>
+
+            <!-- Download Recipe Endpoint -->
+            <div class="border-l-4 border-blue-500 pl-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">Download Recipe File</h3>
+                    <span class="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded">GET</span>
+                </div>
+                <p class="text-sm text-gray-600 mb-3">
+                    <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/recipes/:id/download</code>
+                </p>
+                <p class="text-gray-700 text-sm">Download the raw .cook file with proper content-type headers.</p>
+            </div>
+
+            <!-- List Feeds Endpoint -->
+            <div class="border-l-4 border-blue-500 pl-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">List All Feeds</h3>
+                    <span class="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded">GET</span>
+                </div>
+                <p class="text-sm text-gray-600 mb-3">
+                    <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/feeds</code>
+                </p>
+                <p class="text-gray-700 text-sm">List all registered feeds with metadata and recipe counts.</p>
+            </div>
+
+            <!-- Stats Endpoint -->
+            <div class="border-l-4 border-blue-500 pl-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">System Statistics</h3>
+                    <span class="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded">GET</span>
+                </div>
+                <p class="text-sm text-gray-600 mb-3">
+                    <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/stats</code>
+                </p>
+                <p class="text-gray-700 mb-3 text-sm">System-wide statistics including total recipes, feeds, and indexing status.</p>
+                <p class="text-sm">
+                    <a href="/api/stats" class="text-orange-600 hover:text-orange-700 underline font-medium">View live stats →</a>
+                </p>
+            </div>
+        </div>
+
+        <div class="mt-6 bg-yellow-50 border-l-4 border-yellow-400 p-4">
+            <div class="flex items-start">
+                <svg class="h-4 w-4 text-yellow-600 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div>
+                    <p class="text-sm text-yellow-800 font-semibold mb-1">Rate Limiting</p>
+                    <p class="text-sm text-yellow-700">
+                        All API endpoints are rate-limited to 100 requests per second per IP address.
+                        Exceed this limit and you'll receive HTTP 429 (Too Many Requests) responses.
+                        For higher limits, consider self-hosting your own federation instance.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLI Usage -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Command-Line Interface</h2>
+        <p class="text-gray-700 mb-4">
+            For developers and power users, the federation includes a CLI tool for searching, downloading, and publishing recipes
+            directly from the terminal.
+        </p>
+
+        <div class="space-y-4">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Search Recipes</h3>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto text-sm"><code># Basic search
+cargo run -- search "chocolate cookies"
+
+# With filters
+cargo run -- search "pasta" --tags "italian,dinner" --max-time 30 --difficulty easy
+
+# Output JSON for scripting
+cargo run -- search "pizza" --format json</code></pre>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Download Recipes</h3>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto text-sm"><code># Download by recipe ID
+cargo run -- download 123 --output ./recipes/cookies.cook
+
+# Download multiple recipes
+cargo run -- download 123 124 125 --output ./my-recipes/</code></pre>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Publish Your Recipes</h3>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto text-sm"><code># Generate Atom feed from directory of .cook files
+cargo run -- publish --input ./my-recipes --output feed.xml --author "Your Name"
+
+# Validate feed before publishing
+cargo run -- validate-feed feed.xml</code></pre>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Server Management</h3>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto text-sm"><code># Run database migrations
+cargo run -- migrate
+
+# Start the web server
+cargo run -- serve
+
+# Manually trigger feed crawl
+cargo run -- crawl --all</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deployment & Self-Hosting -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Deployment & Self-Hosting</h2>
+        <p class="text-gray-700 mb-4">
+            The federation is designed to be easy to deploy and self-host. Run your own instance to have full control over
+            which feeds to index and customize crawling behavior.
+        </p>
+
+        <div class="space-y-4">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Docker Deployment (Recommended)</h3>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto text-sm"><code># Clone repository
+git clone https://github.com/your-org/federation.git
+cd federation
+
+# Start with Docker Compose
+docker-compose up -d
+
+# Access at http://localhost:3000</code></pre>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Production Configuration</h3>
+                <p class="text-gray-700 mb-2 text-sm">Key environment variables to configure:</p>
+                <div class="bg-gray-50 rounded p-3">
+                    <table class="w-full text-sm">
+                        <tbody>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-2 pr-4 font-mono text-xs">DATABASE_URL</td>
+                                <td class="py-2 text-gray-700">SQLite or PostgreSQL connection string</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-2 pr-4 font-mono text-xs">PORT</td>
+                                <td class="py-2 text-gray-700">HTTP server port (default: 3000)</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-2 pr-4 font-mono text-xs">CRAWLER_INTERVAL</td>
+                                <td class="py-2 text-gray-700">Seconds between feed updates (default: 3600)</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-2 pr-4 font-mono text-xs">API_RATE_LIMIT</td>
+                                <td class="py-2 text-gray-700">Requests per second (default: 100)</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 pr-4 font-mono text-xs">RUST_LOG</td>
+                                <td class="py-2 text-gray-700">Logging verbosity (info, debug, trace)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Reverse Proxy Setup</h3>
+                <p class="text-gray-700 mb-2 text-sm">
+                    For production, deploy behind a reverse proxy (nginx, Caddy, Traefik) to handle:
+                </p>
+                <ul class="list-disc list-inside text-gray-700 space-y-1 ml-4 text-sm">
+                    <li>TLS/SSL termination</li>
+                    <li>Additional DDoS protection</li>
+                    <li>Load balancing across multiple instances</li>
+                    <li>Proper <code class="bg-gray-100 px-1 rounded">X-Forwarded-For</code> headers for rate limiting</li>
+                </ul>
+            </div>
+
+            <div class="bg-blue-50 rounded-lg p-4">
+                <p class="text-sm text-blue-900">
+                    <strong>Community Hosting:</strong> Multiple public federation instances can coexist in the ecosystem.
+                    Each instance can index different feeds or serve different communities. This distributed approach prevents
+                    any single point of failure.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contributing & Community -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Contributing & Community</h2>
+        <p class="text-gray-700 mb-4">
+            Cooklang Federation is an open-source project welcoming contributions from the community.
+        </p>
+
+        <div class="grid md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Ways to Contribute</h3>
+                <ul class="space-y-2 text-gray-700 text-sm">
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Publish your own recipe feeds to grow the ecosystem</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Report bugs and suggest features on GitHub Issues</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Submit pull requests for code improvements</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Improve documentation and tutorials</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="h-4 w-4 text-orange-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Help test new features and beta releases</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Resources</h3>
+                <div class="space-y-3">
+                    <a href="https://github.com/your-org/federation" class="flex items-center text-orange-600 hover:text-orange-700 text-sm">
+                        <svg class="h-4 w-4 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                        GitHub Repository
+                    </a>
+                    <a href="https://cooklang.org" class="flex items-center text-orange-600 hover:text-orange-700 text-sm">
+                        <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Cooklang Official Website
+                    </a>
+                    <a href="https://github.com/your-org/federation/blob/main/spec.md" class="flex items-center text-orange-600 hover:text-orange-700 text-sm">
+                        <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Federation Specification
+                    </a>
+                    <a href="/api/stats" class="flex items-center text-orange-600 hover:text-orange-700 text-sm">
+                        <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Live Federation Statistics
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

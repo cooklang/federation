@@ -1,0 +1,7 @@
+[general]
+dirs = ["src/web/templates"]
+
+# Escape all templates by default for XSS protection
+[escaping]
+path = "**/*.html"
+mode = "html"

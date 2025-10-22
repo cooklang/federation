@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Cooklang Federation{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+    <link rel="stylesheet" href="/static/css/recipe.css">
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="bg-white shadow-sm">
+        <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <a href="/" class="flex items-center gap-3">
+                            <img src="/static/images/logo.png" alt="Cooklang Federation" class="h-10 w-10">
+                            <span class="text-2xl font-bold text-orange-600">Cooklang Federation</span>
+                        </a>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="/" data-nav="search" class="nav-link border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Search
+                        </a>
+                        <a href="/feeds" data-nav="feeds" class="nav-link border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Feeds
+                        </a>
+                        <a href="/about" data-nav="about" class="nav-link border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            About
+                        </a>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button
+                        id="theme-toggle"
+                        class="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
+                        aria-label="Toggle dark mode"
+                    >
+                        <span id="theme-toggle-light-icon" class="hidden">🌙</span>
+                        <span id="theme-toggle-dark-icon" class="hidden">☀️</span>
+                    </button>
+                    <a href="/api/stats" class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">API</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t mt-auto">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            <div class="text-center text-gray-500 text-sm">
+                <p>Cooklang Federation - Decentralized Recipe Discovery</p>
+                <p class="mt-1">
+                    <a href="https://cooklang.org" class="text-orange-600 hover:text-orange-700">Learn about Cooklang</a>
+                    •
+                    <a href="/about" class="text-orange-600 hover:text-orange-700">How to Publish</a>
+                    •
+                    <a href="https://github.com/cooklang" class="text-orange-600 hover:text-orange-700">GitHub</a>
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Dark Mode Script -->
+    <script>
+        // Dark mode initialization and toggle
+        (function() {
+            const themeToggle = document.getElementById('theme-toggle');
+            const lightIcon = document.getElementById('theme-toggle-light-icon');
+            const darkIcon = document.getElementById('theme-toggle-dark-icon');
+
+            // Check for saved theme preference or default to system preference
+            function getThemePreference() {
+                const stored = localStorage.getItem('theme');
+                if (stored) {
+                    return stored;
+                }
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+
+            // Apply theme to document
+            function applyTheme(theme) {
+                if (theme === 'dark') {
+                    document.documentElement.classList.add('dark');
+                    document.body.classList.add('dark-mode');
+                    lightIcon.classList.remove('hidden');
+                    darkIcon.classList.add('hidden');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    document.body.classList.remove('dark-mode');
+                    lightIcon.classList.add('hidden');
+                    darkIcon.classList.remove('hidden');
+                }
+            }
+
+            // Initialize theme
+            const currentTheme = getThemePreference();
+            applyTheme(currentTheme);
+
+            // Toggle theme
+            themeToggle.addEventListener('click', function() {
+                const isDark = document.documentElement.classList.contains('dark');
+                const newTheme = isDark ? 'light' : 'dark';
+                localStorage.setItem('theme', newTheme);
+                applyTheme(newTheme);
+            });
+
+            // Listen for system theme changes
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('theme')) {
+                    applyTheme(e.matches ? 'dark' : 'light');
+                }
+            });
+        })();
+    </script>
+
+    <!-- Active Navigation Script -->
+    <script>
+        (function() {
+            const path = window.location.pathname;
+            const navLinks = document.querySelectorAll('.nav-link');
+
+            navLinks.forEach(link => {
+                const navType = link.getAttribute('data-nav');
+                let isActive = false;
+
+                if (navType === 'search' && (path === '/' || path.startsWith('/?'))) {
+                    isActive = true;
+                } else if (navType === 'feeds' && path.startsWith('/feeds')) {
+                    isActive = true;
+                } else if (navType === 'about' && path.startsWith('/about')) {
+                    isActive = true;
+                }
+
+                if (isActive) {
+                    link.classList.remove('border-transparent', 'text-gray-500');
+                    link.classList.add('border-orange-600', 'text-gray-900');
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
