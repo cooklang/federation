@@ -1,0 +1,592 @@
+/* Recipe Details Page Custom Styles */
+
+/* ==================== CSS Variables ==================== */
+:root {
+  /* Primary Colors */
+  --primary-orange: #ff6b35;
+  --primary-green: #4ade80;
+  --light-orange: #fed7aa;
+  --light-blue: #dbeafe;
+  --light-green: #dcfce7;
+  --light-yellow: #fef3c7;
+
+  /* Gradients */
+  --gradient-orange-yellow: linear-gradient(135deg, #fed7aa 0%, #fef3c7 100%);
+  --gradient-green-blue: linear-gradient(135deg, #dcfce7 0%, #dbeafe 100%);
+  --gradient-red-pink: linear-gradient(135deg, #fecaca 0%, #fbcfe8 100%);
+  --gradient-gray-orange: linear-gradient(135deg, #f9fafb 0%, #fed7aa 100%);
+  --gradient-blue-purple: linear-gradient(135deg, #dbeafe 0%, #e9d5ff 100%);
+
+  /* Dark Mode Colors */
+  --dark-bg: #111827;
+  --dark-bg-secondary: #1f2937;
+  --dark-text: #f3f4f6;
+  --dark-text-secondary: #9ca3af;
+}
+
+/* ==================== Badge Styles ==================== */
+
+.ingredient-badge {
+  padding: 0.2rem;
+  background: var(--gradient-orange-yellow);
+  border: 1px solid #fbbf24;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #92400e;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.cookware-badge {
+  padding: 0.2rem;
+  background: var(--gradient-green-blue);
+  border: 1px solid #4ade80;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #065f46;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.timer-badge {
+  padding: 0.2rem;
+  background: var(--gradient-red-pink);
+  border: 1px solid #f87171;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #991b1b;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.timer-badge::before {
+  content: "⏱️ ";
+}
+
+/* ==================== Step Number Badge ==================== */
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+  border-radius: 50%;
+  color: white;
+  font-weight: 700;
+  font-size: 0.875rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+/* ==================== Tag Styles ==================== */
+
+.tag {
+  display: inline-block;
+  padding: 0.375rem 0.75rem;
+  background: linear-gradient(135deg, #fed7aa 0%, #fbbf24 100%);
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #92400e;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* ==================== Metadata Pill Styles ==================== */
+
+.metadata-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #f9fafb 0%, #e5e7eb 100%);
+  border: 1px solid #d1d5db;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  color: #374151;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.metadata-pill .emoji {
+  font-size: 1.125rem;
+}
+
+.metadata-pill strong {
+  font-weight: 600;
+  color: #111827;
+}
+
+/* ==================== Recipe Card Styles ==================== */
+
+.recipe-card {
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-top: 4px solid;
+  border-image: linear-gradient(90deg, #f97316 0%, #fbbf24 100%) 1;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.recipe-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* ==================== Title Gradient ==================== */
+
+.gradient-title {
+  background: linear-gradient(135deg, #ea580c 0%, #eab308 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+}
+
+/* ==================== Ingredient Item Styles ==================== */
+
+.ingredient-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--gradient-orange-yellow);
+  border: 1px solid #fcd34d;
+  border-radius: 0.5rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.ingredient-item:hover {
+  transform: translateX(4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ingredient-name {
+  font-weight: 600;
+  color: #78350f;
+}
+
+.ingredient-quantity {
+  font-weight: 500;
+  color: #92400e;
+  white-space: nowrap;
+  margin-left: 1rem;
+}
+
+/* ==================== Step Item Styles ==================== */
+
+.step-item {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--gradient-gray-orange);
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.step-content {
+  flex: 1;
+  color: #374151;
+  line-height: 1.6;
+}
+
+/* ==================== Section Note Styles ==================== */
+
+.section-note {
+  padding: 1rem;
+  background: var(--gradient-blue-purple);
+  border-left: 4px solid #3b82f6;
+  border-radius: 0.5rem;
+  color: #1e3a8a;
+  font-style: italic;
+  margin: 1rem 0;
+}
+
+/* ==================== Summary Box Styles ==================== */
+
+.summary-box {
+  padding: 1rem;
+  background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+  border-left: 4px solid #f59e0b;
+  border-radius: 0.5rem;
+  color: #78350f;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+/* ==================== Grid Layout ==================== */
+
+.recipe-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  .recipe-grid {
+    grid-template-columns: 1fr 2fr;
+  }
+
+  .ingredients-sidebar {
+    position: sticky;
+    top: 1.5rem;
+    align-self: start;
+  }
+}
+
+/* ==================== Action Button Styles ==================== */
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.action-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+.action-button-primary {
+  background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+  color: white;
+}
+
+.action-button-primary:hover {
+  background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+}
+
+.action-button-secondary {
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.action-button-secondary:hover {
+  background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+}
+
+/* ==================== Scaling Control ==================== */
+
+.scaling-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #fbbf24;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.scaling-control label {
+  font-weight: 600;
+  color: #78350f;
+}
+
+.scaling-control input[type="number"] {
+  width: 4rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.scaling-control button {
+  padding: 0.25rem 0.75rem;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.scaling-control button:hover {
+  background: #f3f4f6;
+}
+
+/* ==================== Responsive Image ==================== */
+
+.recipe-image {
+  width: 100%;
+  max-height: 500px;
+  object-fit: cover;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.recipe-image-placeholder {
+  width: 100%;
+  max-height: 500px;
+  height: 400px;
+  background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8rem;
+}
+
+/* ==================== Print Styles ==================== */
+
+@media print {
+  /* Hide elements not needed in print */
+  header,
+  footer,
+  .action-button,
+  .scaling-control,
+  nav,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reset page styling */
+  body {
+    background: white;
+    color: black;
+    font-size: 12pt;
+    line-height: 1.5;
+  }
+
+  /* Remove shadows and gradients */
+  .recipe-card,
+  .ingredient-item,
+  .step-item,
+  .metadata-pill,
+  .tag {
+    box-shadow: none;
+    border: 1px solid #000;
+    background: white;
+    color: black;
+  }
+
+  /* Simplify badges */
+  .ingredient-badge,
+  .cookware-badge,
+  .timer-badge {
+    background: white;
+    border: 1px solid #000;
+    color: black;
+  }
+
+  /* Step numbers */
+  .step-number {
+    background: white;
+    border: 2px solid #000;
+    color: black;
+  }
+
+  /* Title */
+  .gradient-title {
+    -webkit-text-fill-color: initial;
+    background: none;
+    color: black;
+  }
+
+  /* Prevent page breaks inside elements */
+  .ingredient-item,
+  .step-item,
+  .section-note {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Section headings */
+  h2 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* Compact spacing */
+  .recipe-grid {
+    display: block;
+  }
+
+  .ingredients-sidebar {
+    margin-bottom: 1rem;
+  }
+
+  /* Image handling */
+  .recipe-image,
+  .recipe-image-placeholder {
+    max-height: 300px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+
+/* ==================== Dark Mode Support ==================== */
+
+body.dark-mode {
+  background: var(--dark-bg);
+  color: var(--dark-text);
+}
+
+body.dark-mode .recipe-card {
+  background: var(--dark-bg-secondary);
+  border-top-color: #f97316;
+}
+
+body.dark-mode .metadata-pill {
+  background: linear-gradient(135deg, #374151 0%, #4b5563 100%);
+  border-color: #6b7280;
+  color: var(--dark-text);
+}
+
+body.dark-mode .metadata-pill strong {
+  color: var(--dark-text);
+}
+
+body.dark-mode .ingredient-item {
+  background: linear-gradient(135deg, #422006 0%, #451a03 100%);
+  border-color: #78350f;
+}
+
+body.dark-mode .ingredient-name,
+body.dark-mode .ingredient-quantity {
+  color: #fcd34d;
+}
+
+body.dark-mode .step-item {
+  background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+  border-color: #4b5563;
+}
+
+body.dark-mode .step-content {
+  color: var(--dark-text);
+}
+
+body.dark-mode .summary-box {
+  background: linear-gradient(135deg, #422006 0%, #451a03 100%);
+  border-left-color: #f59e0b;
+  color: #fcd34d;
+}
+
+body.dark-mode .scaling-control {
+  background: linear-gradient(135deg, #422006 0%, #451a03 100%);
+  border-color: #78350f;
+}
+
+body.dark-mode .scaling-control label {
+  color: #fcd34d;
+}
+
+body.dark-mode .scaling-control input {
+  background: var(--dark-bg-secondary);
+  border-color: #6b7280;
+  color: var(--dark-text);
+}
+
+body.dark-mode .scaling-control button {
+  background: var(--dark-bg-secondary);
+  border-color: #6b7280;
+  color: var(--dark-text);
+}
+
+body.dark-mode .scaling-control button:hover {
+  background: #374151;
+}
+
+body.dark-mode .tag {
+  background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+  color: #fcd34d;
+}
+
+body.dark-mode .section-note {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+  border-left-color: #3b82f6;
+  color: #dbeafe;
+}
+
+body.dark-mode .recipe-image-placeholder {
+  background: linear-gradient(135deg, #c2410c 0%, #ea580c 100%);
+}
+
+body.dark-mode pre {
+  color: var(--dark-text-secondary);
+}
+
+body.dark-mode h2,
+body.dark-mode h3 {
+  color: var(--dark-text);
+}
+
+/* ==================== Accessibility ==================== */
+
+/* Focus indicators */
+a:focus,
+button:focus,
+input:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .ingredient-badge,
+  .cookware-badge,
+  .timer-badge,
+  .tag,
+  .metadata-pill {
+    border-width: 2px;
+  }
+
+  .step-number {
+    border: 2px solid white;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==================== Utility Classes ==================== */
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.container-recipe {
+  max-width: 72rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .container-recipe {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container-recipe {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}

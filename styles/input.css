@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/* Custom component classes */
+@layer components {
+  .btn-primary {
+    @apply bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded transition-colors;
+  }
+
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6;
+  }
+
+  .recipe-card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-all duration-200;
+  }
+
+  .recipe-card:hover {
+    @apply transform -translate-y-1 shadow-lg;
+  }
+}
+
+/* Custom utilities */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Dark mode custom styles */
+@layer base {
+  .dark {
+    color-scheme: dark;
+  }
+}

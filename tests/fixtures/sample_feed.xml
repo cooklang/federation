@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cooklang="https://cooklang.org/ns/1.0">
+  <title>Jane's Recipe Collection</title>
+  <link href="https://example.com/recipes" rel="alternate"/>
+  <link href="https://example.com/feed.xml" rel="self"/>
+  <id>https://example.com/feed.xml</id>
+  <updated>2025-01-05T12:00:00Z</updated>
+  <author>
+    <name>Jane Doe</name>
+    <email>jane@example.com</email>
+  </author>
+
+  <entry>
+    <id>recipe-chocolate-cookies</id>
+    <title>Chocolate Chip Cookies</title>
+    <link rel="alternate" href="https://example.com/recipes/chocolate-cookies"/>
+    <link rel="enclosure" href="https://example.com/recipes/chocolate-cookies.cook" type="text/plain"/>
+    <published>2025-01-01T10:00:00Z</published>
+    <updated>2025-01-05T10:00:00Z</updated>
+    <summary>Classic chocolate chip cookies that are crispy on the outside and chewy on the inside.</summary>
+    <category term="dessert"/>
+    <category term="cookies"/>
+    <category term="baking"/>
+    <cooklang:servings>24</cooklang:servings>
+    <cooklang:totalTime>45</cooklang:totalTime>
+    <cooklang:activeTime>20</cooklang:activeTime>
+    <cooklang:difficulty>easy</cooklang:difficulty>
+  </entry>
+
+  <entry>
+    <id>recipe-pasta-carbonara</id>
+    <title>Spaghetti Carbonara</title>
+    <link rel="alternate" href="https://example.com/recipes/carbonara"/>
+    <link rel="enclosure" href="https://example.com/recipes/carbonara.cook" type="text/plain"/>
+    <published>2025-01-02T14:00:00Z</published>
+    <updated>2025-01-02T14:00:00Z</updated>
+    <summary>Traditional Italian pasta carbonara with eggs, cheese, and guanciale.</summary>
+    <category term="dinner"/>
+    <category term="italian"/>
+    <category term="pasta"/>
+    <cooklang:servings>4</cooklang:servings>
+    <cooklang:totalTime>30</cooklang:totalTime>
+    <cooklang:activeTime>30</cooklang:activeTime>
+    <cooklang:difficulty>medium</cooklang:difficulty>
+  </entry>
+</feed>
