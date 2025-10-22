@@ -67,7 +67,7 @@ Let it cool for ~{10%minutes} before serving.
         );
     }
 
-    assert!(parsed.sections.len() >= 1, "Should have at least 1 section");
+    assert!(!parsed.sections.is_empty(), "Should have at least 1 section");
     // Note: The cooklang parser may merge sections differently than expected
 
     // Verify steps have inline items

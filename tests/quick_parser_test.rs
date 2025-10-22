@@ -17,8 +17,8 @@ Bake in #oven{} for ~{25%minutes}.
     println!("   - Sections: {}", parsed.sections.len());
 
     assert!(parsed.ingredients.len() >= 2);
-    assert!(parsed.cookware.len() >= 1);
-    assert!(parsed.timers.len() >= 1);
+    assert!(!parsed.cookware.is_empty());
+    assert!(!parsed.timers.is_empty());
     assert!(!parsed.sections.is_empty());
 
     // Verify JSON serialization works

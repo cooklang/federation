@@ -96,17 +96,17 @@ fn format_quantity(value: &cooklang::Value) -> Option<String> {
                 } else if (frac - 0.75).abs() < 0.01 {
                     "¾"
                 } else {
-                    return Some(format!("{:.2}", val));
+                    return Some(format!("{val:.2}"));
                 };
 
                 if whole > 0 {
-                    Some(format!("{} {}", whole, frac_str))
+                    Some(format!("{whole} {frac_str}"))
                 } else {
                     Some(frac_str.to_string())
                 }
             } else {
                 Some(
-                    format!("{:.2}", val)
+                    format!("{val:.2}")
                         .trim_end_matches('0')
                         .trim_end_matches('.')
                         .to_string(),
@@ -114,11 +114,11 @@ fn format_quantity(value: &cooklang::Value) -> Option<String> {
             }
         }
         cooklang::Value::Range { start, end } => {
-            let start_val = cooklang::Value::Number(start.clone());
-            let end_val = cooklang::Value::Number(end.clone());
+            let start_val = cooklang::Value::Number(*start);
+            let end_val = cooklang::Value::Number(*end);
             let start_str = format_quantity(&start_val)?;
             let end_str = format_quantity(&end_val)?;
-            Some(format!("{}-{}", start_str, end_str))
+            Some(format!("{start_str}-{end_str}"))
         }
         cooklang::Value::Text(t) => Some(t.to_string()),
     }
@@ -185,14 +185,14 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
             if let Some(recipe_time) = meta.time(&Converter::default()) {
                 match recipe_time {
                     cooklang::metadata::RecipeTime::Total(minutes) => {
-                        (Some(format!("{} minutes", minutes)), None, None)
+                        (Some(format!("{minutes} minutes")), None, None)
                     }
                     cooklang::metadata::RecipeTime::Composed {
                         prep_time,
                         cook_time,
                     } => {
-                        let prep = prep_time.map(|m| format!("{} minutes", m));
-                        let cook = cook_time.map(|m| format!("{} minutes", m));
+                        let prep = prep_time.map(|m| format!("{m} minutes"));
+                        let cook = cook_time.map(|m| format!("{m} minutes"));
                         (None, prep, cook)
                     }
                 }
@@ -216,7 +216,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
         Some(RecipeMetadata {
             tags,
             description: meta.description().map(|d| d.to_string()),
-            servings: meta.servings().map(|s| format!("{}", s)),
+            servings: meta.servings().map(|s| format!("{s}")),
             time: time_str,
             difficulty: meta
                 .map
@@ -359,7 +359,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                                     let mut qty = format_quantity(q.value()).unwrap_or_default();
                                     if let Some(unit) = q.unit() {
                                         if !qty.is_empty() {
-                                            qty.push_str(&format!(" {}", unit));
+                                            qty.push_str(&format!(" {unit}"));
                                         } else {
                                             qty = unit.to_string();
                                         }
@@ -426,10 +426,10 @@ Heat in #oven{} for ~{20%minutes}.
 
     #[test]
     fn test_format_quantity_fractions() {
-        let half = cooklang::Value::Number(cooklang::quantity::Number::Regular(0.5.into()));
+        let half = cooklang::Value::Number(cooklang::quantity::Number::Regular(0.5));
         assert_eq!(format_quantity(&half), Some("½".to_string()));
 
-        let one_and_half = cooklang::Value::Number(cooklang::quantity::Number::Regular(1.5.into()));
+        let one_and_half = cooklang::Value::Number(cooklang::quantity::Number::Regular(1.5));
         assert_eq!(format_quantity(&one_and_half), Some("1 ½".to_string()));
     }
 }

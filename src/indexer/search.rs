@@ -16,7 +16,7 @@ pub struct SearchIndex {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchQuery {
-    pub q: String,        // Unified query string
+    pub q: String, // Unified query string
     pub page: usize,
     pub limit: usize,
 }

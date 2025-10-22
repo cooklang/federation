@@ -214,11 +214,12 @@ impl GitHubIndexer {
                 let tags = db::tags::get_tags_for_recipe(&self.pool, recipe_id).await?;
 
                 // Fetch ingredients for this recipe
-                let ingredients = db::ingredients::get_ingredients_for_recipe(&self.pool, recipe_id)
-                    .await?
-                    .iter()
-                    .map(|ing| ing.name.clone())
-                    .collect::<Vec<_>>();
+                let ingredients =
+                    db::ingredients::get_ingredients_for_recipe(&self.pool, recipe_id)
+                        .await?
+                        .iter()
+                        .map(|ing| ing.name.clone())
+                        .collect::<Vec<_>>();
 
                 self.search_index.index_recipe(
                     &mut search_writer,
@@ -460,12 +461,11 @@ impl GitHubIndexer {
 
         // Look for matching image files
         for ext in &image_exts {
-            let image_path = format!("{}{}", recipe_base, ext);
+            let image_path = format!("{recipe_base}{ext}");
             if tree_entries.iter().any(|entry| entry.path == image_path) {
                 // Return raw.githubusercontent.com URL
                 return Some(format!(
-                    "https://raw.githubusercontent.com/{}/{}/{}/{}",
-                    owner, repo, branch, image_path
+                    "https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{image_path}"
                 ));
             }
         }
