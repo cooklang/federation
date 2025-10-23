@@ -18,13 +18,14 @@ RUN mkdir src && \
 
 # Build dependencies (this layer will be cached)
 RUN cargo build --release && \
-    rm -rf src target/release/federation target/release/federation.d target/release/deps/federation-*
+    rm -rf src target/release/federation target/release/federation.d target/release/deps/federation-* target/release/libfederation.* target/release/deps/libfederation-*
 
 # Copy source code and Tailwind config
 COPY src ./src
 COPY migrations ./migrations
 COPY styles ./styles
 COPY tailwind.config.js ./
+COPY askama.toml ./
 
 # Build Tailwind CSS
 RUN ./tailwindcss -i ./styles/input.css -o ./src/web/static/css/output.css --minify
