@@ -35,7 +35,7 @@ feeds:
     added_at: "2025-10-13"
 
   - url: "https://github.com/simcard0000/recipes"
-    title: "recipes"
+    title: "Simran's recipes"
     feed_type: github
     branch: "main"
     enabled: true
