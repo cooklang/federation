@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.75-bookworm AS builder
+FROM rust:bookworm AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN mkdir src && \
 
 # Build dependencies (this layer will be cached)
 RUN cargo build --release && \
-    rm -rf src
+    rm -rf src target/release/federation target/release/federation.d target/release/deps/federation-*
 
 # Copy source code and Tailwind config
 COPY src ./src
@@ -66,12 +66,12 @@ COPY --from=builder /app/src/web/templates /app/src/web/templates
 # Switch to app user
 USER app
 
-# Expose port
-EXPOSE 3000
+# Expose port (default, can be overridden by env var)
+EXPOSE 3100
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-3100}/health || exit 1
 
 # Run the binary
 CMD ["federation", "serve"]
