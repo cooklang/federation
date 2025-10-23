@@ -39,7 +39,36 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-4">
-                    <a href="/api/stats" class="text-sm text-gray-500 hover:text-gray-700">API</a>
+                    <a href="/api/stats" class="hidden sm:inline text-sm text-gray-500 hover:text-gray-700">API</a>
+                    <!-- Mobile menu button -->
+                    <button id="mobile-menu-button" class="sm:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-orange-500">
+                        <span class="sr-only">Open main menu</span>
+                        <!-- Hamburger icon -->
+                        <svg class="block h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                        </svg>
+                        <!-- Close icon (hidden by default) -->
+                        <svg class="hidden h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <!-- Mobile menu -->
+            <div id="mobile-menu" class="hidden sm:hidden">
+                <div class="pt-2 pb-3 space-y-1">
+                    <a href="/" data-nav-mobile="search" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                        Search
+                    </a>
+                    <a href="/feeds" data-nav-mobile="feeds" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                        Feeds
+                    </a>
+                    <a href="/about" data-nav-mobile="about" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                        About
+                    </a>
+                    <a href="/api/stats" class="border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                        API
+                    </a>
                 </div>
             </div>
         </nav>
@@ -66,14 +95,59 @@
         </div>
     </footer>
 
+    <!-- Mobile Menu Toggle Script -->
+    <script>
+        (function() {
+            const menuButton = document.getElementById('mobile-menu-button');
+            const mobileMenu = document.getElementById('mobile-menu');
+            const hamburgerIcon = menuButton.querySelector('svg:first-of-type');
+            const closeIcon = menuButton.querySelector('svg:last-of-type');
+
+            menuButton.addEventListener('click', function() {
+                const isHidden = mobileMenu.classList.contains('hidden');
+
+                if (isHidden) {
+                    mobileMenu.classList.remove('hidden');
+                    hamburgerIcon.classList.add('hidden');
+                    closeIcon.classList.remove('hidden');
+                } else {
+                    mobileMenu.classList.add('hidden');
+                    hamburgerIcon.classList.remove('hidden');
+                    closeIcon.classList.add('hidden');
+                }
+            });
+        })();
+    </script>
+
     <!-- Active Navigation Script -->
     <script>
         (function() {
             const path = window.location.pathname;
             const navLinks = document.querySelectorAll('.nav-link');
+            const navLinksMobile = document.querySelectorAll('.nav-link-mobile');
 
+            // Desktop navigation
             navLinks.forEach(link => {
                 const navType = link.getAttribute('data-nav');
+                let isActive = false;
+
+                if (navType === 'search' && (path === '/' || path.startsWith('/?'))) {
+                    isActive = true;
+                } else if (navType === 'feeds' && path.startsWith('/feeds')) {
+                    isActive = true;
+                } else if (navType === 'about' && path.startsWith('/about')) {
+                    isActive = true;
+                }
+
+                if (isActive) {
+                    link.classList.remove('border-transparent', 'text-gray-500');
+                    link.classList.add('border-orange-600', 'text-gray-900');
+                }
+            });
+
+            // Mobile navigation
+            navLinksMobile.forEach(link => {
+                const navType = link.getAttribute('data-nav-mobile');
                 let isActive = false;
 
                 if (navType === 'search' && (path === '/' || path.startsWith('/?'))) {
