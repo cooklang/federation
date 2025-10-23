@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     volumes:
-      - federation-data:/app/data
+      - ./data:/app/data:rw
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3100}/health"]
@@ -17,6 +17,3 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-
-volumes:
-  federation-data:
