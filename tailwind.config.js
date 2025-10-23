@@ -5,7 +5,6 @@ module.exports = {
     "./src/**/*.rs",
   ],
   // Note: Output path is ./src/web/static/css/output.css
-  darkMode: 'class',
   theme: {
     extend: {
       colors: {

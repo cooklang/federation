@@ -32,15 +32,7 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-4">
-                    <button
-                        id="theme-toggle"
-                        class="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 transition-colors"
-                        aria-label="Toggle dark mode"
-                    >
-                        <span id="theme-toggle-light-icon" class="hidden">🌙</span>
-                        <span id="theme-toggle-dark-icon" class="hidden">☀️</span>
-                    </button>
-                    <a href="/api/stats" class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">API</a>
+                    <a href="/api/stats" class="text-sm text-gray-500 hover:text-gray-700">API</a>
                 </div>
             </div>
         </nav>
@@ -66,59 +58,6 @@
             </div>
         </div>
     </footer>
-
-    <!-- Dark Mode Script -->
-    <script>
-        // Dark mode initialization and toggle
-        (function() {
-            const themeToggle = document.getElementById('theme-toggle');
-            const lightIcon = document.getElementById('theme-toggle-light-icon');
-            const darkIcon = document.getElementById('theme-toggle-dark-icon');
-
-            // Check for saved theme preference or default to system preference
-            function getThemePreference() {
-                const stored = localStorage.getItem('theme');
-                if (stored) {
-                    return stored;
-                }
-                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            }
-
-            // Apply theme to document
-            function applyTheme(theme) {
-                if (theme === 'dark') {
-                    document.documentElement.classList.add('dark');
-                    document.body.classList.add('dark-mode');
-                    lightIcon.classList.remove('hidden');
-                    darkIcon.classList.add('hidden');
-                } else {
-                    document.documentElement.classList.remove('dark');
-                    document.body.classList.remove('dark-mode');
-                    lightIcon.classList.add('hidden');
-                    darkIcon.classList.remove('hidden');
-                }
-            }
-
-            // Initialize theme
-            const currentTheme = getThemePreference();
-            applyTheme(currentTheme);
-
-            // Toggle theme
-            themeToggle.addEventListener('click', function() {
-                const isDark = document.documentElement.classList.contains('dark');
-                const newTheme = isDark ? 'light' : 'dark';
-                localStorage.setItem('theme', newTheme);
-                applyTheme(newTheme);
-            });
-
-            // Listen for system theme changes
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
-                if (!localStorage.getItem('theme')) {
-                    applyTheme(e.matches ? 'dark' : 'light');
-                }
-            });
-        })();
-    </script>
 
     <!-- Active Navigation Script -->
     <script>

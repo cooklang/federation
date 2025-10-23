@@ -11,11 +11,11 @@
   }
 
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6;
+    @apply bg-white rounded-lg shadow-md p-6;
   }
 
   .recipe-card {
-    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-all duration-200;
+    @apply bg-white rounded-lg shadow-md p-6 transition-all duration-200;
   }
 
   .recipe-card:hover {
@@ -27,12 +27,5 @@
 @layer utilities {
   .text-balance {
     text-wrap: balance;
-  }
-}
-
-/* Dark mode custom styles */
-@layer base {
-  .dark {
-    color-scheme: dark;
   }
 }

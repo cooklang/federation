@@ -26,6 +26,7 @@ COPY migrations ./migrations
 COPY styles ./styles
 COPY tailwind.config.js ./
 COPY askama.toml ./
+COPY config ./config
 
 # Build Tailwind CSS
 RUN ./tailwindcss -i ./styles/input.css -o ./src/web/static/css/output.css --minify
@@ -57,6 +58,9 @@ COPY --from=builder /app/target/release/federation /usr/local/bin/federation
 
 # Copy migrations
 COPY --from=builder /app/migrations /app/migrations
+
+# Copy config (including feeds.yaml)
+COPY --from=builder /app/config /app/config
 
 # Copy static files (including compiled CSS)
 COPY --from=builder /app/src/web/static /app/src/web/static
