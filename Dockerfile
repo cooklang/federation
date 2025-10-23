@@ -64,8 +64,9 @@ COPY --from=builder /app/src/web/static /app/src/web/static
 # Copy templates
 COPY --from=builder /app/src/web/templates /app/src/web/templates
 
-# Switch to app user
-USER app
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Expose port (default, can be overridden by env var)
 EXPOSE 3100
@@ -73,6 +74,9 @@ EXPOSE 3100
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${PORT:-3100}/health || exit 1
+
+# Set entrypoint to handle permissions and user switching
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Run the binary
 CMD ["federation", "serve"]
