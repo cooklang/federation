@@ -86,7 +86,7 @@ feeds:
   - url: "https://github.com/surzycki/recipes"
     title: "Food recipe collection"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -146,7 +146,7 @@ feeds:
   - url: "https://github.com/algorist-ahmad/recipes"
     title: "my cooking recipes written in Cooklang"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -158,7 +158,7 @@ feeds:
   - url: "https://github.com/cco2/Recipes"
     title: "cco2/Recipes recipes"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -206,7 +206,7 @@ feeds:
   - url: "https://github.com/ngalaiko/galaiko.rocks"
     title: "my website "
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -218,7 +218,7 @@ feeds:
   - url: "https://github.com/OmTheTurtle/recipes"
     title: "OmTheTurtle/recipes recipes"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -230,7 +230,7 @@ feeds:
   - url: "https://github.com/crhuber/cooking"
     title: "Open source recipes writting in Cooklang"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -242,7 +242,7 @@ feeds:
   - url: "https://github.com/cvhooser/recipes"
     title: "cvhooser/recipes recipes"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -266,7 +266,7 @@ feeds:
   - url: "https://github.com/leMaik/rezepte"
     title: "My recipes, written using Cooklang."
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -287,22 +287,10 @@ feeds:
     added_by: "@dubadub"
     added_at: "2025-10-24"
 
-  - url: "https://github.com/briansunter/graph"
-    title: "briansunter/graph recipes"
-    feed_type: github
-    branch: "main"
-    enabled: true
-    tags:
-      - cookbook
-      - github
-    notes: "Found via GitHub search"
-    added_by: "@dubadub"
-    added_at: "2025-10-24"
-
   - url: "https://github.com/firefly2442/my-recipes-cooklang"
     title: "My personal recipes in markdown cooklang format."
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -434,7 +422,7 @@ feeds:
   - url: "https://github.com/notslang/recipes"
     title: "notslang/recipes recipes"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -542,7 +530,7 @@ feeds:
   - url: "https://github.com/matt-auckland/personal-site"
     title: "Lazy blog"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -566,7 +554,7 @@ feeds:
   - url: "https://github.com/isaacvando/recipes"
     title: "Isaac's Recipes"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -590,7 +578,7 @@ feeds:
   - url: "https://github.com/albe2669/recipes"
     title: "My collection of recipes written in Cooklang"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -674,7 +662,7 @@ feeds:
   - url: "https://github.com/ericroberts/cookbook"
     title: "ericroberts/cookbook recipes"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook
@@ -710,7 +698,7 @@ feeds:
   - url: "https://github.com/briansunter/site"
     title: "My Personal Site"
     feed_type: github
-    branch: "main"
+    branch: "master"
     enabled: true
     tags:
       - cookbook

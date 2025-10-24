@@ -101,7 +101,30 @@ impl GitHubIndexer {
         info!("Indexing GitHub repository: {}", github_feed_id);
 
         // Get GitHub feed info
-        let github_feed = db::github::get_github_feed(&self.pool, github_feed_id).await?;
+        let mut github_feed = db::github::get_github_feed(&self.pool, github_feed_id).await?;
+
+        // Fetch current repository info to ensure we have the latest default branch
+        let github_repo = self
+            .client
+            .get_repository(&github_feed.owner, &github_feed.repo_name)
+            .await?;
+
+        // Update default branch if it has changed
+        if github_repo.default_branch != github_feed.default_branch {
+            info!(
+                "Default branch changed for {}/{}: {} -> {}",
+                github_feed.owner,
+                github_feed.repo_name,
+                github_feed.default_branch,
+                github_repo.default_branch
+            );
+            github_feed = db::github::update_github_feed_branch(
+                &self.pool,
+                github_feed_id,
+                &github_repo.default_branch,
+            )
+            .await?;
+        }
 
         // Get latest commit SHA
         let latest_commit_sha = self

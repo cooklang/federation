@@ -45,27 +45,76 @@ pub async fn get_feed_by_url(pool: &DbPool, url: &str) -> Result<Option<Feed>> {
 }
 
 /// List all feeds
+/// By default, excludes GitHub feeds (use exclude_github = false to include them)
 pub async fn list_feeds(
     pool: &DbPool,
     status: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<Feed>> {
-    let feeds = if let Some(status) = status {
-        sqlx::query_as::<_, Feed>(
-            "SELECT * FROM feeds WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        )
-        .bind(status)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as::<_, Feed>("SELECT * FROM feeds ORDER BY created_at DESC LIMIT ? OFFSET ?")
+    list_feeds_with_filter(pool, status, limit, offset, true).await
+}
+
+/// List feeds with optional GitHub feed exclusion
+pub async fn list_feeds_with_filter(
+    pool: &DbPool,
+    status: Option<&str>,
+    limit: i64,
+    offset: i64,
+    exclude_github: bool,
+) -> Result<Vec<Feed>> {
+    let feeds = if exclude_github {
+        // Exclude feeds that have a corresponding entry in github_feeds
+        if let Some(status) = status {
+            sqlx::query_as::<_, Feed>(
+                r#"
+                SELECT f.* FROM feeds f
+                LEFT JOIN github_feeds gf ON f.id = gf.feed_id
+                WHERE f.status = ? AND gf.id IS NULL
+                ORDER BY f.created_at DESC
+                LIMIT ? OFFSET ?
+                "#,
+            )
+            .bind(status)
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
             .await?
+        } else {
+            sqlx::query_as::<_, Feed>(
+                r#"
+                SELECT f.* FROM feeds f
+                LEFT JOIN github_feeds gf ON f.id = gf.feed_id
+                WHERE gf.id IS NULL
+                ORDER BY f.created_at DESC
+                LIMIT ? OFFSET ?
+                "#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await?
+        }
+    } else {
+        // Include all feeds (original behavior)
+        if let Some(status) = status {
+            sqlx::query_as::<_, Feed>(
+                "SELECT * FROM feeds WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            )
+            .bind(status)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, Feed>(
+                "SELECT * FROM feeds ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await?
+        }
     };
 
     Ok(feeds)

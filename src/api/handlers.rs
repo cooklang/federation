@@ -31,7 +31,9 @@ pub async fn search_recipes(
     };
 
     // Execute search
-    let results = state.search_index.search(&query, state.settings.pagination.max_search_results)?;
+    let results = state
+        .search_index
+        .search(&query, state.settings.pagination.max_search_results)?;
 
     // Batch fetch tags for all recipes (avoid N+1 query problem)
     let recipe_ids: Vec<i64> = results.results.iter().map(|r| r.recipe_id).collect();
@@ -135,12 +137,13 @@ pub async fn list_feeds(
     let limit = params.limit.min(state.settings.pagination.api_max_limit);
     let offset = (params.page.saturating_sub(1)) * limit;
 
-    // Fetch feeds from database
-    let feeds = db::feeds::list_feeds(
+    // Fetch feeds from database (include GitHub feeds for API)
+    let feeds = db::feeds::list_feeds_with_filter(
         &state.pool,
         params.status.as_deref(),
         limit as i64,
         offset as i64,
+        false, // include GitHub feeds
     )
     .await?;
 

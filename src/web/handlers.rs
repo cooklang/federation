@@ -77,7 +77,9 @@ pub async fn index(
         };
 
         // Execute search
-        let search_results = state.search_index.search(&search_query, state.settings.pagination.max_search_results)?;
+        let search_results = state
+            .search_index
+            .search(&search_query, state.settings.pagination.max_search_results)?;
         let total = search_results.total;
         let total_pages = search_results.total_pages;
 
@@ -293,8 +295,10 @@ pub async fn feeds_page(
     let limit = state.settings.pagination.feed_page_size;
     let offset = (params.page.saturating_sub(1)) * limit;
 
-    // Fetch feeds
-    let feeds = db::feeds::list_feeds(&state.pool, None, limit as i64, offset as i64).await?;
+    // Fetch feeds (include GitHub feeds for web display)
+    let feeds =
+        db::feeds::list_feeds_with_filter(&state.pool, None, limit as i64, offset as i64, false)
+            .await?;
     let total = db::feeds::count_feeds(&state.pool, None).await?;
     let total_pages = (total as usize)
         .div_ceil(limit)

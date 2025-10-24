@@ -60,8 +60,8 @@ pub async fn sync_feeds_from_config(pool: &DbPool, config: &FeedConfig) -> Resul
         config.enabled_count()
     );
 
-    // Load all existing feeds from database
-    let existing_feeds = db::feeds::list_feeds(pool, None, 10000, 0).await?;
+    // Load all existing feeds from database (including GitHub feeds for sync)
+    let existing_feeds = db::feeds::list_feeds_with_filter(pool, None, 10000, 0, false).await?;
     let mut existing_by_url: HashMap<String, Feed> = existing_feeds
         .into_iter()
         .map(|f| (f.url.clone(), f))
