@@ -212,7 +212,7 @@ mod tests {
             },
             pagination: crate::config::PaginationConfig {
                 api_max_limit: 100,
-                web_default_limit: 12,
+                web_default_limit: 50,
                 feed_page_size: 20,
                 max_search_results: 1000,
                 max_request_body_size: 10485760,

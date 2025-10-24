@@ -31,7 +31,7 @@ pub async fn search_recipes(
     };
 
     // Execute search
-    let results = state.search_index.search(&query)?;
+    let results = state.search_index.search(&query, state.settings.pagination.max_search_results)?;
 
     // Batch fetch tags for all recipes (avoid N+1 query problem)
     let recipe_ids: Vec<i64> = results.results.iter().map(|r| r.recipe_id).collect();

@@ -77,7 +77,7 @@ pub async fn index(
         };
 
         // Execute search
-        let search_results = state.search_index.search(&search_query)?;
+        let search_results = state.search_index.search(&search_query, state.settings.pagination.max_search_results)?;
         let total = search_results.total;
         let total_pages = search_results.total_pages;
 

@@ -171,7 +171,7 @@ impl SearchIndex {
     }
 
     /// Search recipes using unified query string
-    pub fn search(&self, query: &SearchQuery) -> Result<SearchResults> {
+    pub fn search(&self, query: &SearchQuery, max_limit: usize) -> Result<SearchResults> {
         let searcher = self.reader.searcher();
 
         // Build query parser with all searchable fields
@@ -199,7 +199,7 @@ impl SearchIndex {
 
         // Calculate offset
         let offset = (query.page.saturating_sub(1)) * query.limit;
-        let limit = query.limit.min(100); // Max 100 results per page
+        let limit = query.limit.min(max_limit);
 
         // Execute search
         let top_docs = searcher
@@ -297,7 +297,7 @@ mod tests {
             limit: 20,
         };
 
-        let result = index.search(&query);
+        let result = index.search(&query, 1000);
         assert!(result.is_ok());
 
         // Test field-specific query
@@ -307,7 +307,7 @@ mod tests {
             limit: 20,
         };
 
-        let result = index.search(&query);
+        let result = index.search(&query, 1000);
         assert!(result.is_ok());
 
         // Test complex query
@@ -317,7 +317,7 @@ mod tests {
             limit: 20,
         };
 
-        let result = index.search(&query);
+        let result = index.search(&query, 1000);
         assert!(result.is_ok());
     }
 }
