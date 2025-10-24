@@ -54,7 +54,6 @@ pub struct TreeEntry {
     pub size: Option<u64>,
     #[serde(rename = "type")]
     pub entry_type: String,
-    pub url: String,
 }
 
 /// Git tree API response
