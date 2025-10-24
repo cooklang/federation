@@ -44,7 +44,7 @@
                     <p class="text-gray-600 text-sm mb-2">by {{ feed.author }}</p>
                     {% endif %}
 
-                    <p class="text-gray-500 text-sm mb-3 break-all">{{ feed.url }}</p>
+                    <a href="{{ feed.url }}" target="_blank" rel="noopener noreferrer" class="text-gray-500 text-sm mb-3 break-all hover:text-orange-600 hover:underline block">{{ feed.url }}</a>
 
                     <div class="flex items-center gap-4 text-sm text-gray-600">
                         <span class="flex items-center">

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ recipe.title }} - Cooklang Federation{% endblock %}
+{% block title %}{% if let Some(metadata) = recipe.metadata %}{% if let Some(title) = metadata.title %}{{ title }}{% else %}{{ recipe.title }}{% endif %}{% else %}{{ recipe.title }}{% endif %} - Cooklang Federation{% endblock %}
 
 {% block content %}
 <div class="container-recipe py-8">
@@ -11,7 +11,7 @@
 
     <!-- Recipe Header -->
     <div class="recipe-card p-8 mb-6">
-        <h1 class="gradient-title text-5xl mb-6 text-balance">{{ recipe.title }}</h1>
+        <h1 class="gradient-title text-5xl mb-6 text-balance">{% if let Some(metadata) = recipe.metadata %}{% if let Some(title) = metadata.title %}{{ title }}{% else %}{{ recipe.title }}{% endif %}{% else %}{{ recipe.title }}{% endif %}</h1>
 
         <!-- Display metadata from parsed recipe (like cookcli) -->
         {% if let Some(metadata) = recipe.metadata %}
@@ -82,6 +82,19 @@
                 <div class="metadata-pill">
                     <span class="emoji">👤</span>
                     <span><strong>{{ author }}</strong></span>
+                </div>
+                {% endif %}
+
+                {% if let Some(source) = metadata.source %}
+                <div class="metadata-pill">
+                    <span class="emoji">🔗</span>
+                    <span>
+                        {% if source.starts_with("http://") || source.starts_with("https://") %}
+                        <a href="{{ source }}" target="_blank" rel="noopener noreferrer" class="text-orange-600 hover:text-orange-700 hover:underline"><strong>Source</strong></a>
+                        {% else %}
+                        <strong>Source:</strong> {{ source }}
+                        {% endif %}
+                    </span>
                 </div>
                 {% endif %}
 
