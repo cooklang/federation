@@ -48,7 +48,7 @@ feeds:
     added_at: "2025-10-13"
 
   - url: "https://github.com/LiHRaM/cooklang-recipes"
-    title: "LiHRaM/cooklang-recipes recipes"
+    title: "LiHRaM's Cooklang Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -60,7 +60,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/andoriyu/cooking"
-    title: "https://cooklang.org/"
+    title: "andoriyu's CookLang Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -132,7 +132,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/ignacio-gn/cook"
-    title: "ignacio-gn/cook recipes"
+    title: "Ignacio's Cooking Notes & Recipes"
     feed_type: github
     branch: "main"
     enabled: true
@@ -156,7 +156,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/cco2/Recipes"
-    title: "cco2/Recipes recipes"
+    title: "cco2's Cooking Notes & Recipes"
     feed_type: github
     branch: "master"
     enabled: true
@@ -180,7 +180,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/demosjarco/recipes"
-    title: "demosjarco/recipes recipes"
+    title: "demosjarco's Recipe Repository"
     feed_type: github
     branch: "main"
     enabled: true
@@ -216,7 +216,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/OmTheTurtle/recipes"
-    title: "OmTheTurtle/recipes recipes"
+    title: "OmTheTurtle's Recipe Collection"
     feed_type: github
     branch: "master"
     enabled: true
@@ -240,7 +240,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/cvhooser/recipes"
-    title: "cvhooser/recipes recipes"
+    title: "cvhooser's Favorite Recipes"
     feed_type: github
     branch: "master"
     enabled: true
@@ -252,7 +252,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/pakohan/recipes"
-    title: "pakohan/recipes recipes"
+    title: "pakohan's Cooklang Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -276,7 +276,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/MikeEgan1/recipies"
-    title: "MikeEgan1/recipies recipes"
+    title: "Mike Egan's CookLang Recipes"
     feed_type: github
     branch: "main"
     enabled: true
@@ -312,7 +312,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/justintout/recipes"
-    title: "justintout/recipes recipes"
+    title: "justintout's Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -336,7 +336,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/luizribeiro/menu"
-    title: "luizribeiro/menu recipes"
+    title: "Luiz Ribeiro's Menu"
     feed_type: github
     branch: "main"
     enabled: true
@@ -384,7 +384,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/marcusolsson/recipes"
-    title: "marcusolsson/recipes recipes"
+    title: "Marcus Olsson's Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -420,7 +420,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/notslang/recipes"
-    title: "notslang/recipes recipes"
+    title: "notslang's Recipe Collection"
     feed_type: github
     branch: "master"
     enabled: true
@@ -516,7 +516,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/stusmall/stuartsmall.com"
-    title: "stusmall/stuartsmall.com recipes"
+    title: "Stuart Small's Personal Website"
     feed_type: github
     branch: "main"
     enabled: true
@@ -600,7 +600,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/brendanmckenzie/recipes"
-    title: "brendanmckenzie/recipes recipes"
+    title: "Brendan McKenzie's Multi-Cuisine Recipes"
     feed_type: github
     branch: "main"
     enabled: true
@@ -624,7 +624,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/jnobles/RecipeBook"
-    title: "jnobles/RecipeBook recipes"
+    title: "JNobles' Recipe Book"
     feed_type: github
     branch: "main"
     enabled: true
@@ -636,7 +636,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/gnawcire/recipes"
-    title: "gnawcire/recipes recipes"
+    title: "gnawcire's Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -648,7 +648,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/shen-sat/cooklang"
-    title: "shen-sat/cooklang recipes"
+    title: "shen-sat's CookLang Recipe Management"
     feed_type: github
     branch: "main"
     enabled: true
@@ -660,7 +660,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/ericroberts/cookbook"
-    title: "ericroberts/cookbook recipes"
+    title: "Eric Roberts' Cookbook"
     feed_type: github
     branch: "master"
     enabled: true
@@ -684,7 +684,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/ggalmazor/recipes"
-    title: "ggalmazor/recipes recipes"
+    title: "ggalmazor's Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -696,7 +696,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/briansunter/site"
-    title: "My Personal Site"
+    title: "Brian Sunter's Personal Site"
     feed_type: github
     branch: "master"
     enabled: true
@@ -708,7 +708,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/tasty-eats/tasty-eats"
-    title: "tasty-eats/tasty-eats recipes"
+    title: "Tasty Eats: Community Recipe Collection"
     feed_type: github
     branch: "main"
     enabled: true
@@ -720,7 +720,7 @@ feeds:
     added_at: "2025-10-24"
 
   - url: "https://github.com/schurmann/blog"
-    title: "schurmann/blog recipes"
+    title: "Schurmann's Personal Blog"
     feed_type: github
     branch: "main"
     enabled: true
