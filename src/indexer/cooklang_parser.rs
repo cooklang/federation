@@ -17,6 +17,7 @@ pub struct ParsedRecipeData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecipeMetadata {
     pub tags: Vec<String>,
+    pub title: Option<String>,
     pub description: Option<String>,
     pub servings: Option<String>,
     pub time: Option<String>,
@@ -27,6 +28,7 @@ pub struct RecipeMetadata {
     pub cuisine: Option<String>,
     pub diet: Option<String>,
     pub author: Option<String>,
+    pub source: Option<String>,
     pub custom: Vec<(String, String)>,
 }
 
@@ -160,6 +162,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
         if !matches!(
             key_str,
             Some("tags")
+                | Some("title")
                 | Some("description")
                 | Some("servings")
                 | Some("time")
@@ -170,6 +173,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                 | Some("cuisine")
                 | Some("diet")
                 | Some("author")
+                | Some("source")
         ) {
             if let (Some(k), Some(v)) = (key.as_str(), value.as_str()) {
                 custom.push((k.to_string(), v.to_string()));
@@ -215,6 +219,11 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
 
         Some(RecipeMetadata {
             tags,
+            title: meta
+                .map
+                .get("title")
+                .and_then(|t| t.as_str())
+                .map(|t| t.to_string()),
             description: meta.description().map(|d| d.to_string()),
             servings: meta.servings().map(|s| format!("{s}")),
             time: time_str,
@@ -241,6 +250,11 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                 .and_then(|d| d.as_str())
                 .map(|d| d.to_string()),
             author: meta.author().and_then(|a| a.name().map(|n| n.to_string())),
+            source: meta
+                .map
+                .get("source")
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string()),
             custom,
         })
     };
