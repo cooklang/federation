@@ -743,6 +743,18 @@ feeds:
     added_by: "@dubadub"
     added_at: "2025-10-24"
 
+  - url: "https://github.com/evanstern/recipes-cooklang"
+    title: "Evan's Recipes"
+    feed_type: github
+    branch: "main"
+    enabled: true
+    tags:
+      - cookbook
+      - github
+      - vegitarian
+    notes: "Mostly vegitarian recipies my wife and I enjoy"
+    added_by: "@evanstern"
+    added_at: "2025-11-19"
 
 # Validation configuration
 validation:
