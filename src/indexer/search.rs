@@ -320,4 +320,101 @@ mod tests {
         let result = index.search(&query, 1000);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_index_recipe_deletes_before_adding() {
+        use crate::db::models::Recipe;
+        use chrono::Utc;
+        use tantivy::collector::Count;
+        use tantivy::query::AllQuery;
+
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+
+        // Create test recipe with unique title for searching
+        let recipe = Recipe {
+            id: 123,
+            feed_id: 1,
+            external_id: "test-recipe".to_string(),
+            title: "UniqueTestRecipe12345".to_string(),
+            summary: Some("Test summary".to_string()),
+            source_url: None,
+            enclosure_url: "https://example.com/test.cook".to_string(),
+            content: Some("@flour{500%g}\n@sugar{200%g}".to_string()),
+            servings: Some(4),
+            total_time_minutes: Some(30),
+            active_time_minutes: Some(15),
+            difficulty: Some("easy".to_string()),
+            image_url: None,
+            published_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            indexed_at: None,
+            created_at: Utc::now(),
+        };
+
+        // Index recipe first time
+        index
+            .index_recipe(&mut writer, &recipe, None, &[], &[])
+            .unwrap();
+        writer.commit().unwrap();
+        drop(writer); // Drop writer to release lock
+
+        // Reload reader and verify one document exists
+        index.reader.reload().unwrap();
+        let searcher = index.reader.searcher();
+
+        // Use title search to find the recipe
+        let query_parser = QueryParser::for_index(
+            &index.index,
+            vec![index.schema.title],
+        );
+        let query = query_parser.parse_query("UniqueTestRecipe12345").unwrap();
+        let count = searcher.search(&query, &Count).unwrap();
+        assert_eq!(
+            count, 1,
+            "Should have exactly 1 document after first index"
+        );
+
+        // Update recipe (same ID, different title but still unique)
+        let updated_recipe = Recipe {
+            id: 123,
+            title: "UpdatedUniqueTestRecipe12345".to_string(),
+            summary: Some("Updated summary".to_string()),
+            ..recipe
+        };
+
+        // Index again (simulating an update)
+        let mut writer = index.writer().unwrap();
+        index
+            .index_recipe(&mut writer, &updated_recipe, None, &[], &[])
+            .unwrap();
+        writer.commit().unwrap();
+
+        // Reload and verify old title is gone
+        index.reader.reload().unwrap();
+        let searcher = index.reader.searcher();
+        let old_query = query_parser.parse_query("UniqueTestRecipe12345").unwrap();
+        let old_count = searcher.search(&old_query, &Count).unwrap();
+        assert_eq!(
+            old_count, 0,
+            "Old title should not be found after update (delete-before-add should have removed it)"
+        );
+
+        // Verify new title exists
+        let new_query = query_parser.parse_query("UpdatedUniqueTestRecipe12345").unwrap();
+        let new_count = searcher.search(&new_query, &Count).unwrap();
+        assert_eq!(
+            new_count, 1,
+            "New title should be found after update"
+        );
+
+        // Verify total document count is still 1 (not 2)
+        let all_query = AllQuery;
+        let total = searcher.search(&all_query, &Count).unwrap();
+        assert_eq!(
+            total, 1,
+            "Should STILL have exactly 1 document total after update (delete-before-add)"
+        );
+    }
 }
