@@ -88,6 +88,14 @@ impl SearchIndex {
     ) -> Result<()> {
         debug!("Indexing recipe: {}", recipe.id);
 
+        // Delete existing documents with this recipe_id FIRST
+        let term = Term::from_field_i64(self.schema.id, recipe.id);
+        writer.delete_term(term);
+        debug!(
+            "Deleted existing search documents for recipe_id: {}",
+            recipe.id
+        );
+
         let mut doc = doc!(
             self.schema.id => recipe.id,
             self.schema.title => recipe.title.clone(),
@@ -319,5 +327,101 @@ mod tests {
 
         let result = index.search(&query, 1000);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_index_recipe_deletes_before_adding() {
+        use crate::db::models::Recipe;
+        use chrono::Utc;
+        use tantivy::collector::Count;
+        use tantivy::query::AllQuery;
+        use tantivy::schema::Value;
+
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+
+        // Create test recipe
+        let recipe = Recipe {
+            id: 123,
+            feed_id: 1,
+            external_id: "test-recipe".to_string(),
+            title: "Original Title".to_string(),
+            summary: Some("Test summary".to_string()),
+            source_url: None,
+            enclosure_url: "https://example.com/test.cook".to_string(),
+            content: Some("@flour{500%g}\n@sugar{200%g}".to_string()),
+            servings: Some(4),
+            total_time_minutes: Some(30),
+            active_time_minutes: Some(15),
+            difficulty: Some("easy".to_string()),
+            image_url: None,
+            published_at: Some(Utc::now()),
+            updated_at: Some(Utc::now()),
+            indexed_at: None,
+            created_at: Utc::now(),
+            content_hash: None,
+        };
+
+        // Index recipe first time
+        index
+            .index_recipe(&mut writer, &recipe, None, &[], &[])
+            .unwrap();
+        writer.commit().unwrap();
+        drop(writer); // Drop writer to release lock
+
+        // Reload reader and verify one document exists
+        index.reader.reload().unwrap();
+        let searcher = index.reader.searcher();
+        let all_query = AllQuery;
+        let count = searcher.search(&all_query, &Count).unwrap();
+        assert_eq!(count, 1, "Should have exactly 1 document after first index");
+
+        // Update recipe (same ID, different title)
+        let updated_recipe = Recipe {
+            id: 123,
+            title: "Updated Title".to_string(),
+            summary: Some("Updated summary".to_string()),
+            ..recipe
+        };
+
+        // Index again (simulating an update)
+        let mut writer = index.writer().unwrap();
+        index
+            .index_recipe(&mut writer, &updated_recipe, None, &[], &[])
+            .unwrap();
+        writer.commit().unwrap();
+
+        // Reload and verify still only one document total
+        index.reader.reload().unwrap();
+        let searcher = index.reader.searcher();
+        let total = searcher.search(&all_query, &Count).unwrap();
+        assert_eq!(
+            total, 1,
+            "Should STILL have exactly 1 document total after update (delete-before-add removed the old one)"
+        );
+
+        // Verify the document has the updated title
+        let top_docs = searcher
+            .search(&all_query, &TopDocs::with_limit(1))
+            .unwrap();
+        assert_eq!(top_docs.len(), 1, "Should have exactly 1 document");
+
+        let doc = searcher
+            .doc::<tantivy::TantivyDocument>(top_docs[0].1)
+            .unwrap();
+        let title = doc.get_first(index.schema.title).unwrap().as_str().unwrap();
+        assert_eq!(
+            title, "Updated Title",
+            "Document should have the updated title, not the original"
+        );
+
+        // Verify it has the correct ID
+        let id_value = doc.get_first(index.schema.id).unwrap();
+        if let tantivy::schema::OwnedValue::I64(id) = id_value {
+            assert_eq!(*id, 123, "Document should have ID 123");
+        } else {
+            panic!("ID field should be I64");
+        }
     }
 }

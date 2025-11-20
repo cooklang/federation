@@ -54,6 +54,7 @@ pub struct Recipe {
     pub updated_at: Option<DateTime<Utc>>,
     pub indexed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +72,7 @@ pub struct NewRecipe {
     pub difficulty: Option<String>,
     pub image_url: Option<String>,
     pub published_at: Option<DateTime<Utc>>,
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -359,6 +359,9 @@ impl GitHubIndexer {
             recipe.id
         } else {
             // Create new recipe
+            // Calculate content hash for deduplication
+            let content_hash = Some(db::recipes::calculate_content_hash(&title, Some(&content)));
+
             let new_recipe = NewRecipe {
                 feed_id: github_feed.feed_id,
                 external_id: file_path.to_string(),
@@ -373,6 +376,7 @@ impl GitHubIndexer {
                 difficulty: None,
                 image_url,
                 published_at: None,
+                content_hash,
             };
 
             let recipe = db::recipes::create_recipe(&self.pool, &new_recipe).await?;

@@ -1,6 +1,129 @@
 use crate::db::{models::*, DbPool};
 use crate::error::{Error, Result};
 use chrono::Utc;
+use sha2::{Digest, Sha256};
+
+/// Calculate content hash for deduplication
+///
+/// Hash is based on:
+/// - Normalized title (lowercase, trimmed, whitespace collapsed)
+/// - Normalized content (cooklang content without comments/formatting)
+///
+/// This allows us to detect identical recipes even if they come from
+/// different feeds or have minor formatting differences.
+pub fn calculate_content_hash(title: &str, content: Option<&str>) -> String {
+    let mut hasher = Sha256::new();
+
+    // Normalize title
+    let normalized_title = normalize_title(title);
+    hasher.update(normalized_title.as_bytes());
+
+    // Normalize and hash content if available
+    if let Some(content) = content {
+        let normalized_content = normalize_cooklang_content(content);
+        hasher.update(normalized_content.as_bytes());
+    }
+
+    // Return hex string
+    format!("{:x}", hasher.finalize())
+}
+
+/// Normalize title for consistent hashing
+fn normalize_title(title: &str) -> String {
+    title
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
+}
+
+/// Normalize cooklang content for consistent hashing
+///
+/// Removes:
+/// - Comments (-- lines and [- ... -] blocks)
+/// - Extra whitespace
+/// - Empty lines
+///
+/// Preserves:
+/// - Ingredient syntax (@ingredient{})
+/// - Cookware syntax (#cookware{})
+/// - Timer syntax (~timer{})
+/// - Step order and content
+fn normalize_cooklang_content(content: &str) -> String {
+    let lines: Vec<String> = content
+        .lines()
+        .filter_map(|line| {
+            // Remove inline comments
+            let line = line.split("--").next().unwrap_or(line);
+
+            // Trim whitespace
+            let line = line.trim();
+
+            // Skip empty lines
+            if line.is_empty() {
+                return None;
+            }
+
+            Some(line.to_string())
+        })
+        .collect();
+
+    let mut result = lines.join("\n");
+
+    // Remove block comments [- ... -]
+    while let Some(start) = result.find("[-") {
+        if let Some(end_pos) = result[start..].find("-]") {
+            let end = start + end_pos + 2; // +2 for the "-]" itself
+                                           // Also remove trailing newline if the block comment is on its own line
+            let actual_end = if result.len() > end && result.chars().nth(end) == Some('\n') {
+                end + 1
+            } else {
+                end
+            };
+            result.replace_range(start..actual_end, "");
+            // If there's a newline before the comment and we're at the start, trim it
+            result = result.trim().to_string();
+        } else {
+            break;
+        }
+    }
+
+    // Collapse multiple newlines into one
+    while result.contains("\n\n\n") {
+        result = result.replace("\n\n\n", "\n\n");
+    }
+
+    result.trim().to_string()
+}
+
+/// Check if a recipe with the same content hash already exists
+/// Returns the existing recipe if found
+pub async fn find_recipe_by_content_hash(
+    pool: &DbPool,
+    content_hash: &str,
+) -> Result<Option<Recipe>> {
+    let recipe =
+        sqlx::query_as::<_, Recipe>("SELECT * FROM recipes WHERE content_hash = ? LIMIT 1")
+            .bind(content_hash)
+            .fetch_optional(pool)
+            .await?;
+
+    Ok(recipe)
+}
+
+/// Get all recipes with the same content hash (duplicates)
+pub async fn find_duplicate_recipes(pool: &DbPool, content_hash: &str) -> Result<Vec<Recipe>> {
+    let recipes = sqlx::query_as::<_, Recipe>(
+        "SELECT * FROM recipes WHERE content_hash = ? ORDER BY created_at ASC",
+    )
+    .bind(content_hash)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(recipes)
+}
 
 /// Create a new recipe
 pub async fn create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<Recipe> {
@@ -11,9 +134,9 @@ pub async fn create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<Reci
         INSERT INTO recipes (
             feed_id, external_id, title, source_url, enclosure_url,
             content, summary, servings, total_time_minutes, active_time_minutes,
-            difficulty, image_url, published_at, updated_at, created_at
+            difficulty, image_url, published_at, updated_at, created_at, content_hash
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         "#,
     )
@@ -32,6 +155,7 @@ pub async fn create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<Reci
     .bind(new_recipe.published_at)
     .bind(now)
     .bind(now)
+    .bind(&new_recipe.content_hash)
     .fetch_one(pool)
     .await?;
 
@@ -292,6 +416,7 @@ mod tests {
             difficulty: Some("easy".to_string()),
             image_url: None,
             published_at: Some(Utc::now()),
+            content_hash: None,
         };
 
         let recipe = create_recipe(&pool, &new_recipe).await.unwrap();
@@ -308,5 +433,79 @@ mod tests {
 
         // Delete
         delete_recipe(&pool, recipe.id).await.unwrap();
+    }
+
+    #[test]
+    fn test_normalize_title() {
+        assert_eq!(normalize_title("  Chocolate   Cake  "), "chocolate cake");
+        assert_eq!(normalize_title("CHOCOLATE CAKE"), "chocolate cake");
+        assert_eq!(normalize_title("Chocolate\tCake"), "chocolate cake");
+    }
+
+    #[test]
+    fn test_same_content_produces_same_hash() {
+        let content1 = ">> ingredients\n@flour{500%g}\n@sugar{200%g}\n\n>> steps\nMix ingredients.";
+        let content2 = ">> ingredients\n@flour{500%g}\n@sugar{200%g}\n\n>> steps\nMix ingredients.";
+
+        let hash1 = calculate_content_hash("Chocolate Cake", Some(content1));
+        let hash2 = calculate_content_hash("Chocolate Cake", Some(content2));
+
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_whitespace_differences_produce_same_hash() {
+        let content1 = "@flour{500%g}\n@sugar{200%g}";
+        let content2 = "@flour{500%g}  \n  @sugar{200%g}";
+
+        let hash1 = calculate_content_hash("Cake", Some(content1));
+        let hash2 = calculate_content_hash("Cake", Some(content2));
+
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_comments_dont_affect_hash() {
+        let content1 = "@flour{500%g}\n-- This is a comment\n@sugar{200%g}";
+        let content2 = "@flour{500%g}\n@sugar{200%g}";
+
+        let hash1 = calculate_content_hash("Cake", Some(content1));
+        let hash2 = calculate_content_hash("Cake", Some(content2));
+
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_different_content_produces_different_hash() {
+        let content1 = "@flour{500%g}";
+        let content2 = "@flour{600%g}";
+
+        let hash1 = calculate_content_hash("Cake", Some(content1));
+        let hash2 = calculate_content_hash("Cake", Some(content2));
+
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_title_case_differences_produce_same_hash() {
+        let content = "@flour{500%g}";
+
+        let hash1 = calculate_content_hash("Chocolate Cake", Some(content));
+        let hash2 = calculate_content_hash("CHOCOLATE CAKE", Some(content));
+        let hash3 = calculate_content_hash("chocolate cake", Some(content));
+
+        assert_eq!(hash1, hash2);
+        assert_eq!(hash2, hash3);
+    }
+
+    #[test]
+    fn test_block_comments_dont_affect_hash() {
+        let content1 = "@flour{500%g}\n[- This is a block comment -]\n@sugar{200%g}";
+        let content2 = "@flour{500%g}\n@sugar{200%g}";
+
+        let hash1 = calculate_content_hash("Cake", Some(content1));
+        let hash2 = calculate_content_hash("Cake", Some(content2));
+
+        assert_eq!(hash1, hash2);
     }
 }
