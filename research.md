@@ -2,11 +2,15 @@
 
 ## Executive Summary
 
-**Issue:** The search function returns duplicate results when the same recipe is published by multiple feeds/sources.
+**Issue:** The search function returns duplicate results, including the same recipe ID appearing multiple times.
 
-**Root Cause:** The system uses a per-feed deduplication strategy `(feed_id, external_id)` but does not detect when identical recipes come from different sources. Each recipe gets a unique ID in the database and search index, leading to duplicates in search results.
+**Root Causes (Two Separate Issues):**
+1. **CRITICAL BUG:** Same recipe_id appears multiple times because Tantivy doesn't delete old documents before re-indexing updated recipes
+2. **Feature Gap:** Different recipe IDs for the same content from multiple feeds/sources (no content-based deduplication)
 
-**Recommended Solution:** Implement a hybrid approach with both immediate post-search deduplication and long-term content-based canonical recipe system.
+**Recommended Solution:**
+1. **Immediate Fix (Bug):** Delete existing search documents before re-indexing (src/github/indexer.rs:247 or src/indexer/search.rs:81)
+2. **Future Enhancement:** Implement content-based deduplication using content hashes or canonical recipe system
 
 ---
 
@@ -27,7 +31,154 @@ When people copy and republish recipes from other sources, the search results sh
 
 ---
 
-## Root Cause Analysis
+## CRITICAL BUG: Same Recipe ID Indexed Multiple Times
+
+### Evidence
+
+User reported (and HTML inspection confirms) that the same recipe ID appears multiple times in search results:
+```html
+<a href="/recipes/2473">...  <!-- First occurrence -->
+<a href="/recipes/2473">...  <!-- Duplicate! -->
+<a href="/recipes/2457">...  <!-- First occurrence -->
+<a href="/recipes/2457">...  <!-- Duplicate! -->
+```
+
+### Root Cause
+
+**File:** `src/github/indexer.rs:220-258` and `src/indexer/search.rs:81-139`
+
+When a recipe is updated (e.g., file SHA changes in GitHub), the system:
+1. ✅ Updates the database record (line 357: `update_github_recipe_sha`)
+2. ✅ Adds recipe_id to `successful_recipe_ids` for re-indexing
+3. ❌ **NEVER deletes the old Tantivy document**
+4. ❌ **Adds a NEW document with the same recipe_id**
+
+**Result:** Each recipe update creates an additional duplicate in the search index.
+
+### The Bug in Code
+
+**File:** `src/github/indexer.rs:247-253`
+```rust
+// Batch commit to search index
+for recipe_id in successful_recipe_ids {
+    let recipe = db::recipes::get_recipe(&self.pool, recipe_id).await?;
+    // ... fetch tags, ingredients ...
+
+    self.search_index.index_recipe(  // ❌ BUG: Adds without deleting first!
+        &mut search_writer,
+        &recipe,
+        file_path.as_deref(),
+        &tags,
+        &ingredients,
+    )?;
+}
+```
+
+**File:** `src/indexer/search.rs:136`
+```rust
+pub fn index_recipe(...) -> Result<()> {
+    // ... build document ...
+
+    writer.add_document(doc)?;  // ❌ BUG: Should delete first!
+
+    Ok(())
+}
+```
+
+**Note:** There IS a `delete_recipe()` function (line 167), but it's never called before adding!
+
+### Timeline of Bug
+
+```
+Time 0: Recipe "Lasagna" created
+  → Database: recipe_id=2473
+  → Tantivy: 1 document with id=2473
+
+Time 1: Recipe file updated (new SHA)
+  → Database: recipe_id=2473 (updated)
+  → Tantivy: Still has old document
+  → Re-index called: adds SECOND document with id=2473
+  → Result: 2 documents with id=2473!
+
+Time 2: Another update
+  → Tantivy: Now has 3 documents with id=2473!
+```
+
+### The Fix
+
+**Option A: Delete in batch indexer** (Recommended)
+
+**File:** `src/github/indexer.rs:247` (before `index_recipe` call)
+```rust
+for recipe_id in successful_recipe_ids {
+    let recipe = db::recipes::get_recipe(&self.pool, recipe_id).await?;
+
+    // DELETE OLD ENTRY FIRST
+    self.search_index.delete_recipe(&mut search_writer, recipe_id)?;
+
+    // Now add the updated version
+    self.search_index.index_recipe(
+        &mut search_writer,
+        &recipe,
+        file_path.as_deref(),
+        &tags,
+        &ingredients,
+    )?;
+}
+```
+
+**Option B: Delete inside index_recipe**
+
+**File:** `src/indexer/search.rs:81`
+```rust
+pub fn index_recipe(
+    &self,
+    writer: &mut IndexWriter,
+    recipe: &Recipe,
+    file_path: Option<&str>,
+    tags: &[String],
+    ingredients: &[String],
+) -> Result<()> {
+    debug!("Indexing recipe: {}", recipe.id);
+
+    // DELETE ANY EXISTING DOCUMENTS WITH THIS ID
+    let term = Term::from_field_i64(self.schema.id, recipe.id);
+    writer.delete_term(term);
+
+    // Now add the new document
+    let mut doc = doc!(...);
+    writer.add_document(doc)?;
+
+    Ok(())
+}
+```
+
+**Recommendation:** Use **Option B** because:
+- ✅ Fixes the problem at the source
+- ✅ Works for all callers (not just GitHub indexer)
+- ✅ Prevents future bugs if other code calls `index_recipe`
+- ✅ Self-contained and clear intent
+- ✅ Minimal code change (2 lines)
+
+### Testing the Fix
+
+1. **Before fix:** Search for a recipe that has been updated multiple times
+   - Should see duplicates
+
+2. **After fix + reindex:**
+   - Delete search index: `rm -rf data/search_index/`
+   - Re-run indexer: should create clean index
+   - Search again: no duplicates
+
+3. **Verify updates work:**
+   - Update a recipe file in GitHub
+   - Re-index the repository
+   - Search for that recipe
+   - Should appear only ONCE (not twice)
+
+---
+
+## Root Cause Analysis (Content-Based Deduplication)
 
 ### Current Architecture Overview
 
@@ -846,9 +997,47 @@ Search results for "Lasagna":
 
 ## Recommended Implementation Plan
 
-### Phase 1: Quick Fix (Days 1-2)
+### Phase 0: Fix Critical Bug (Hours 1-2) **URGENT**
 
-**Goal:** Immediately improve user experience with minimal changes.
+**Goal:** Fix the bug causing same recipe_id to appear multiple times.
+
+**Implementation:** Add delete-before-add logic to `index_recipe` function.
+
+**Steps:**
+1. Update `src/indexer/search.rs:81-139` to delete existing documents before adding
+2. Rebuild search index from scratch to clean existing duplicates
+3. Test that recipe updates don't create duplicates
+4. Deploy fix
+
+**Code Change:**
+```rust
+// In src/indexer/search.rs, line 89 (after debug log)
+pub fn index_recipe(...) -> Result<()> {
+    debug!("Indexing recipe: {}", recipe.id);
+
+    // DELETE ANY EXISTING DOCUMENTS WITH THIS ID FIRST
+    let term = Term::from_field_i64(self.schema.id, recipe.id);
+    writer.delete_term(term);
+
+    // Now build and add the new document
+    let mut doc = doc!(...);
+    // ... rest of function
+}
+```
+
+**Code Location:** `src/indexer/search.rs:81-139`
+
+**Estimated Effort:** 30 minutes coding + 30 minutes testing + reindex time
+
+**Risks:**
+- None - this is a clear bug fix
+- Need to rebuild search index (may take time depending on database size)
+
+---
+
+### Phase 1: Post-Search Deduplication (Optional - Days 1-2)
+
+**Goal:** Handle content-based duplicates (different recipe IDs, same content).
 
 **Implementation:** Option 1B + 1C (Fuzzy matching with over-fetch)
 
@@ -869,7 +1058,11 @@ Search results for "Lasagna":
 **Risks:**
 - May incorrectly group slightly different recipes
 - Pagination counts slightly inaccurate
-- Not a permanent solution
+- Only addresses symptoms, not root cause
+
+**Note:** This phase may not be needed if Phase 0 solves most of the duplicate issues. Evaluate after deploying Phase 0 fix.
+
+---
 
 ### Phase 2: Content Hash System (Weeks 1-2)
 
@@ -1171,14 +1364,20 @@ SQLite views could help, but:
 
 ## Conclusion
 
-The duplicate search results issue stems from the system's per-feed deduplication strategy, which allows identical recipes from different sources to have different database IDs and appear multiple times in search results.
+The duplicate search results issue has **two root causes:**
+
+1. **CRITICAL BUG (Primary Issue):** Same recipe_id appears multiple times because Tantivy doesn't delete old documents before re-indexing updated recipes. This creates N duplicates for a recipe updated N times.
+
+2. **Feature Gap (Secondary Issue):** The system's per-feed deduplication strategy allows identical recipes from different sources to have different database IDs and appear separately in search results.
 
 **Recommended approach:**
-1. **Immediate (Phase 1):** Implement fuzzy title-based deduplication in search handler
-2. **Short-term (Phase 2):** Add content hash system for accurate deduplication
-3. **Long-term (Phase 3):** Build canonical recipe system with full source tracking
+1. **URGENT (Phase 0):** Fix the indexing bug by deleting old documents before adding new ones (30 min)
+2. **Evaluate:** After Phase 0, determine if Phase 1 is still needed
+3. **Optional (Phase 1):** Implement fuzzy title-based post-search deduplication (2-4 hours)
+4. **Short-term (Phase 2):** Add content hash system for accurate deduplication (1-2 weeks)
+5. **Long-term (Phase 3):** Build canonical recipe system with full source tracking (1-2 months)
 
-This phased approach balances quick user experience improvements with long-term architectural robustness.
+**The Phase 0 bug fix should solve the immediate problem reported by users.** The remaining phases address the broader content deduplication challenge.
 
 ---
 
@@ -1188,8 +1387,9 @@ Key files to modify:
 
 | File | Lines | Purpose | Phase |
 |------|-------|---------|-------|
-| `src/api/handlers.rs` | 20-64 | Search API handler | 1 |
-| `Cargo.toml` | - | Add strsim dependency | 1 |
+| `src/indexer/search.rs` | 81-139 | Fix indexing bug (add delete) | **0 (URGENT)** |
+| `src/api/handlers.rs` | 20-64 | Search API handler | 1 (optional) |
+| `Cargo.toml` | - | Add strsim dependency | 1 (optional) |
 | `migrations/00X_add_content_hash.sql` | - | Add hash column | 2 |
 | `src/db/recipes.rs` | 242-257 | Recipe creation logic | 2 |
 | `src/indexer/schema.rs` | 1-89 | Search index schema | 2 |
