@@ -88,6 +88,11 @@ impl SearchIndex {
     ) -> Result<()> {
         debug!("Indexing recipe: {}", recipe.id);
 
+        // Delete existing documents with this recipe_id FIRST
+        let term = Term::from_field_i64(self.schema.id, recipe.id);
+        writer.delete_term(term);
+        debug!("Deleted existing search documents for recipe_id: {}", recipe.id);
+
         let mut doc = doc!(
             self.schema.id => recipe.id,
             self.schema.title => recipe.title.clone(),
@@ -327,17 +332,18 @@ mod tests {
         use chrono::Utc;
         use tantivy::collector::Count;
         use tantivy::query::AllQuery;
+        use tantivy::schema::Value;
 
         let dir = tempdir().unwrap();
         let index = SearchIndex::new(dir.path()).unwrap();
         let mut writer = index.writer().unwrap();
 
-        // Create test recipe with unique title for searching
+        // Create test recipe
         let recipe = Recipe {
             id: 123,
             feed_id: 1,
             external_id: "test-recipe".to_string(),
-            title: "UniqueTestRecipe12345".to_string(),
+            title: "Original Title".to_string(),
             summary: Some("Test summary".to_string()),
             source_url: None,
             enclosure_url: "https://example.com/test.cook".to_string(),
@@ -351,6 +357,7 @@ mod tests {
             updated_at: Some(Utc::now()),
             indexed_at: None,
             created_at: Utc::now(),
+            content_hash: None,
         };
 
         // Index recipe first time
@@ -363,23 +370,17 @@ mod tests {
         // Reload reader and verify one document exists
         index.reader.reload().unwrap();
         let searcher = index.reader.searcher();
-
-        // Use title search to find the recipe
-        let query_parser = QueryParser::for_index(
-            &index.index,
-            vec![index.schema.title],
-        );
-        let query = query_parser.parse_query("UniqueTestRecipe12345").unwrap();
-        let count = searcher.search(&query, &Count).unwrap();
+        let all_query = AllQuery;
+        let count = searcher.search(&all_query, &Count).unwrap();
         assert_eq!(
             count, 1,
             "Should have exactly 1 document after first index"
         );
 
-        // Update recipe (same ID, different title but still unique)
+        // Update recipe (same ID, different title)
         let updated_recipe = Recipe {
             id: 123,
-            title: "UpdatedUniqueTestRecipe12345".to_string(),
+            title: "Updated Title".to_string(),
             summary: Some("Updated summary".to_string()),
             ..recipe
         };
@@ -391,30 +392,32 @@ mod tests {
             .unwrap();
         writer.commit().unwrap();
 
-        // Reload and verify old title is gone
+        // Reload and verify still only one document total
         index.reader.reload().unwrap();
         let searcher = index.reader.searcher();
-        let old_query = query_parser.parse_query("UniqueTestRecipe12345").unwrap();
-        let old_count = searcher.search(&old_query, &Count).unwrap();
-        assert_eq!(
-            old_count, 0,
-            "Old title should not be found after update (delete-before-add should have removed it)"
-        );
-
-        // Verify new title exists
-        let new_query = query_parser.parse_query("UpdatedUniqueTestRecipe12345").unwrap();
-        let new_count = searcher.search(&new_query, &Count).unwrap();
-        assert_eq!(
-            new_count, 1,
-            "New title should be found after update"
-        );
-
-        // Verify total document count is still 1 (not 2)
-        let all_query = AllQuery;
         let total = searcher.search(&all_query, &Count).unwrap();
         assert_eq!(
             total, 1,
-            "Should STILL have exactly 1 document total after update (delete-before-add)"
+            "Should STILL have exactly 1 document total after update (delete-before-add removed the old one)"
         );
+
+        // Verify the document has the updated title
+        let top_docs = searcher.search(&all_query, &TopDocs::with_limit(1)).unwrap();
+        assert_eq!(top_docs.len(), 1, "Should have exactly 1 document");
+
+        let doc = searcher.doc::<tantivy::TantivyDocument>(top_docs[0].1).unwrap();
+        let title = doc.get_first(index.schema.title)
+            .unwrap()
+            .as_str()
+            .unwrap();
+        assert_eq!(title, "Updated Title", "Document should have the updated title, not the original");
+
+        // Verify it has the correct ID
+        let id_value = doc.get_first(index.schema.id).unwrap();
+        if let tantivy::schema::OwnedValue::I64(id) = id_value {
+            assert_eq!(*id, 123, "Document should have ID 123");
+        } else {
+            panic!("ID field should be I64");
+        }
     }
 }

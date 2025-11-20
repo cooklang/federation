@@ -73,9 +73,22 @@ fn normalize_cooklang_content(content: &str) -> String {
     let mut result = lines.join("\n");
 
     // Remove block comments [- ... -]
-    while let Some(start) = result.find("[-") {
-        if let Some(end) = result[start..].find("-]") {
-            result.replace_range(start..start + end + 2, "");
+    loop {
+        if let Some(start) = result.find("[-") {
+            if let Some(end_pos) = result[start..].find("-]") {
+                let end = start + end_pos + 2; // +2 for the "-]" itself
+                // Also remove trailing newline if the block comment is on its own line
+                let actual_end = if result.len() > end && result.chars().nth(end) == Some('\n') {
+                    end + 1
+                } else {
+                    end
+                };
+                result.replace_range(start..actual_end, "");
+                // If there's a newline before the comment and we're at the start, trim it
+                result = result.trim().to_string();
+            } else {
+                break;
+            }
         } else {
             break;
         }
@@ -126,9 +139,9 @@ pub async fn create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<Reci
         INSERT INTO recipes (
             feed_id, external_id, title, source_url, enclosure_url,
             content, summary, servings, total_time_minutes, active_time_minutes,
-            difficulty, image_url, published_at, updated_at, created_at
+            difficulty, image_url, published_at, updated_at, created_at, content_hash
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         "#,
     )
@@ -147,6 +160,7 @@ pub async fn create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<Reci
     .bind(new_recipe.published_at)
     .bind(now)
     .bind(now)
+    .bind(&new_recipe.content_hash)
     .fetch_one(pool)
     .await?;
 
@@ -407,6 +421,7 @@ mod tests {
             difficulty: Some("easy".to_string()),
             image_url: None,
             published_at: Some(Utc::now()),
+            content_hash: None,
         };
 
         let recipe = create_recipe(&pool, &new_recipe).await.unwrap();

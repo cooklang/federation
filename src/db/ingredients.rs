@@ -223,6 +223,7 @@ mod tests {
                 difficulty: None,
                 image_url: None,
                 published_at: Some(Utc::now()),
+                content_hash: None,
             },
         )
         .await

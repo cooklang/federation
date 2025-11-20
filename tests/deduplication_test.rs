@@ -54,6 +54,7 @@ async fn test_duplicate_detection_by_hash() {
         difficulty: Some("medium".to_string()),
         image_url: None,
         published_at: None,
+        content_hash: Some(hash.clone()),
     };
 
     let recipe2 = NewRecipe {
@@ -70,6 +71,7 @@ async fn test_duplicate_detection_by_hash() {
         difficulty: Some("medium".to_string()),
         image_url: None,
         published_at: None,
+        content_hash: Some(hash.clone()),
     };
 
     // Create both recipes
@@ -89,16 +91,13 @@ async fn test_duplicate_detection_by_hash() {
         "Recipes from different feeds should have different IDs"
     );
 
-    // NOTE: This test will fail because content_hash field doesn't exist yet
-    // This is expected - we're writing the tests BEFORE the implementation
+    // But the same content hash
+    assert_eq!(
+        r1.content_hash, r2.content_hash,
+        "Recipes with identical content should have the same hash"
+    );
 
-    // But the same content hash (once implemented)
-    // assert_eq!(
-    //     r1.content_hash, r2.content_hash,
-    //     "Recipes with identical content should have the same hash"
-    // );
-
-    // Find duplicates by hash (this will fail because the column doesn't exist)
+    // Find duplicates by hash
     let duplicates = recipes::find_duplicate_recipes(&pool, &hash)
         .await
         .expect("Failed to query duplicates");
@@ -144,6 +143,15 @@ async fn test_different_recipes_have_different_hashes() {
     .expect("Failed to create feed");
 
     // Create two different recipes
+    let hash1 = recipes::calculate_content_hash(
+        "Chocolate Cake",
+        Some("@flour{500%g}\n@sugar{200%g}"),
+    );
+    let hash2 = recipes::calculate_content_hash(
+        "Vanilla Cake",
+        Some("@flour{400%g}\n@sugar{300%g}"),
+    );
+
     let recipe1 = NewRecipe {
         feed_id: feed.id,
         external_id: "recipe1".to_string(),
@@ -158,6 +166,7 @@ async fn test_different_recipes_have_different_hashes() {
         difficulty: None,
         image_url: None,
         published_at: None,
+        content_hash: Some(hash1.clone()),
     };
 
     let recipe2 = NewRecipe {
@@ -174,17 +183,8 @@ async fn test_different_recipes_have_different_hashes() {
         difficulty: None,
         image_url: None,
         published_at: None,
+        content_hash: Some(hash2.clone()),
     };
-
-    // Calculate hashes
-    let hash1 = recipes::calculate_content_hash(
-        "Chocolate Cake",
-        Some("@flour{500%g}\n@sugar{200%g}"),
-    );
-    let hash2 = recipes::calculate_content_hash(
-        "Vanilla Cake",
-        Some("@flour{400%g}\n@sugar{300%g}"),
-    );
 
     // Hashes should be different
     assert_ne!(
@@ -201,11 +201,11 @@ async fn test_different_recipes_have_different_hashes() {
         .await
         .expect("Failed to create recipe2");
 
-    // NOTE: This test will fail because content_hash field doesn't exist yet
-    // assert_ne!(
-    //     r1.content_hash, r2.content_hash,
-    //     "Different recipes should have different content hashes"
-    // );
+    // Different recipes should have different content hashes
+    assert_ne!(
+        r1.content_hash, r2.content_hash,
+        "Different recipes should have different content hashes"
+    );
 
     // Verify they have different IDs
     assert_ne!(r1.id, r2.id);
@@ -247,7 +247,7 @@ async fn test_find_recipe_by_content_hash() {
         "Should not find recipe before it's created"
     );
 
-    // Create recipe (this will fail because content_hash column doesn't exist)
+    // Create recipe
     let new_recipe = NewRecipe {
         feed_id: feed.id,
         external_id: "test-recipe".to_string(),
@@ -262,6 +262,7 @@ async fn test_find_recipe_by_content_hash() {
         difficulty: None,
         image_url: None,
         published_at: None,
+        content_hash: Some(hash.clone()),
     };
 
     let (recipe, _) = recipes::get_or_create_recipe(&pool, &new_recipe)

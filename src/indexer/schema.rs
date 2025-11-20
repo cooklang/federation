@@ -1,4 +1,4 @@
-use tantivy::schema::{Field, Schema, FAST, STORED, STRING, TEXT};
+use tantivy::schema::{Field, Schema, FAST, INDEXED, STORED, STRING, TEXT};
 
 /// Schema for recipe search index
 #[derive(Clone)]
@@ -20,8 +20,8 @@ impl RecipeSchema {
     pub fn new() -> Self {
         let mut schema_builder = Schema::builder();
 
-        // Recipe ID (stored, not searchable)
-        let id = schema_builder.add_i64_field("id", STORED | FAST);
+        // Recipe ID (stored, indexed for deletion, fast for filtering)
+        let id = schema_builder.add_i64_field("id", STORED | FAST | INDEXED);
 
         // Title (searchable, stored, boosted)
         let title = schema_builder.add_text_field("title", TEXT | STORED);

@@ -202,6 +202,7 @@ impl Crawler {
             difficulty: entry.metadata.difficulty.clone(),
             image_url: entry.image_url.clone(),
             published_at: entry.published,
+            content_hash: None, // Will be calculated when content is fetched
         };
 
         let (recipe, is_new) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;
