@@ -73,22 +73,18 @@ fn normalize_cooklang_content(content: &str) -> String {
     let mut result = lines.join("\n");
 
     // Remove block comments [- ... -]
-    loop {
-        if let Some(start) = result.find("[-") {
-            if let Some(end_pos) = result[start..].find("-]") {
-                let end = start + end_pos + 2; // +2 for the "-]" itself
-                // Also remove trailing newline if the block comment is on its own line
-                let actual_end = if result.len() > end && result.chars().nth(end) == Some('\n') {
-                    end + 1
-                } else {
-                    end
-                };
-                result.replace_range(start..actual_end, "");
-                // If there's a newline before the comment and we're at the start, trim it
-                result = result.trim().to_string();
+    while let Some(start) = result.find("[-") {
+        if let Some(end_pos) = result[start..].find("-]") {
+            let end = start + end_pos + 2; // +2 for the "-]" itself
+                                           // Also remove trailing newline if the block comment is on its own line
+            let actual_end = if result.len() > end && result.chars().nth(end) == Some('\n') {
+                end + 1
             } else {
-                break;
-            }
+                end
+            };
+            result.replace_range(start..actual_end, "");
+            // If there's a newline before the comment and we're at the start, trim it
+            result = result.trim().to_string();
         } else {
             break;
         }
@@ -108,12 +104,11 @@ pub async fn find_recipe_by_content_hash(
     pool: &DbPool,
     content_hash: &str,
 ) -> Result<Option<Recipe>> {
-    let recipe = sqlx::query_as::<_, Recipe>(
-        "SELECT * FROM recipes WHERE content_hash = ? LIMIT 1",
-    )
-    .bind(content_hash)
-    .fetch_optional(pool)
-    .await?;
+    let recipe =
+        sqlx::query_as::<_, Recipe>("SELECT * FROM recipes WHERE content_hash = ? LIMIT 1")
+            .bind(content_hash)
+            .fetch_optional(pool)
+            .await?;
 
     Ok(recipe)
 }
@@ -449,10 +444,8 @@ mod tests {
 
     #[test]
     fn test_same_content_produces_same_hash() {
-        let content1 =
-            ">> ingredients\n@flour{500%g}\n@sugar{200%g}\n\n>> steps\nMix ingredients.";
-        let content2 =
-            ">> ingredients\n@flour{500%g}\n@sugar{200%g}\n\n>> steps\nMix ingredients.";
+        let content1 = ">> ingredients\n@flour{500%g}\n@sugar{200%g}\n\n>> steps\nMix ingredients.";
+        let content2 = ">> ingredients\n@flour{500%g}\n@sugar{200%g}\n\n>> steps\nMix ingredients.";
 
         let hash1 = calculate_content_hash("Chocolate Cake", Some(content1));
         let hash2 = calculate_content_hash("Chocolate Cake", Some(content2));

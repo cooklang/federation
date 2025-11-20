@@ -1,5 +1,5 @@
-use federation::db::{feeds, recipes};
 use federation::db::models::{NewFeed, NewRecipe};
+use federation::db::{feeds, recipes};
 use sqlx::SqlitePool;
 
 #[tokio::test]
@@ -143,14 +143,10 @@ async fn test_different_recipes_have_different_hashes() {
     .expect("Failed to create feed");
 
     // Create two different recipes
-    let hash1 = recipes::calculate_content_hash(
-        "Chocolate Cake",
-        Some("@flour{500%g}\n@sugar{200%g}"),
-    );
-    let hash2 = recipes::calculate_content_hash(
-        "Vanilla Cake",
-        Some("@flour{400%g}\n@sugar{300%g}"),
-    );
+    let hash1 =
+        recipes::calculate_content_hash("Chocolate Cake", Some("@flour{500%g}\n@sugar{200%g}"));
+    let hash2 =
+        recipes::calculate_content_hash("Vanilla Cake", Some("@flour{400%g}\n@sugar{300%g}"));
 
     let recipe1 = NewRecipe {
         feed_id: feed.id,

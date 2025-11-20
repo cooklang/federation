@@ -91,7 +91,10 @@ impl SearchIndex {
         // Delete existing documents with this recipe_id FIRST
         let term = Term::from_field_i64(self.schema.id, recipe.id);
         writer.delete_term(term);
-        debug!("Deleted existing search documents for recipe_id: {}", recipe.id);
+        debug!(
+            "Deleted existing search documents for recipe_id: {}",
+            recipe.id
+        );
 
         let mut doc = doc!(
             self.schema.id => recipe.id,
@@ -372,10 +375,7 @@ mod tests {
         let searcher = index.reader.searcher();
         let all_query = AllQuery;
         let count = searcher.search(&all_query, &Count).unwrap();
-        assert_eq!(
-            count, 1,
-            "Should have exactly 1 document after first index"
-        );
+        assert_eq!(count, 1, "Should have exactly 1 document after first index");
 
         // Update recipe (same ID, different title)
         let updated_recipe = Recipe {
@@ -402,15 +402,19 @@ mod tests {
         );
 
         // Verify the document has the updated title
-        let top_docs = searcher.search(&all_query, &TopDocs::with_limit(1)).unwrap();
+        let top_docs = searcher
+            .search(&all_query, &TopDocs::with_limit(1))
+            .unwrap();
         assert_eq!(top_docs.len(), 1, "Should have exactly 1 document");
 
-        let doc = searcher.doc::<tantivy::TantivyDocument>(top_docs[0].1).unwrap();
-        let title = doc.get_first(index.schema.title)
-            .unwrap()
-            .as_str()
+        let doc = searcher
+            .doc::<tantivy::TantivyDocument>(top_docs[0].1)
             .unwrap();
-        assert_eq!(title, "Updated Title", "Document should have the updated title, not the original");
+        let title = doc.get_first(index.schema.title).unwrap().as_str().unwrap();
+        assert_eq!(
+            title, "Updated Title",
+            "Document should have the updated title, not the original"
+        );
 
         // Verify it has the correct ID
         let id_value = doc.get_first(index.schema.id).unwrap();
