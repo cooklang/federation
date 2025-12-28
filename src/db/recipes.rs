@@ -310,6 +310,18 @@ pub async fn delete_recipe(pool: &DbPool, recipe_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// List recently indexed recipes
+pub async fn list_recently_indexed(pool: &DbPool, limit: i64) -> Result<Vec<Recipe>> {
+    let recipes = sqlx::query_as::<_, Recipe>(
+        "SELECT * FROM recipes WHERE indexed_at IS NOT NULL ORDER BY indexed_at DESC LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(recipes)
+}
+
 /// Get recipe by feed ID and external ID
 pub async fn get_recipe_by_external_id(
     pool: &DbPool,

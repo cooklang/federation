@@ -30,6 +30,9 @@
                         <a href="/" data-nav="search" class="nav-link border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
                             Search
                         </a>
+                        <a href="/browse" data-nav="browse" class="nav-link border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Browse
+                        </a>
                         <a href="/feeds" data-nav="feeds" class="nav-link border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
                             Feeds
                         </a>
@@ -59,6 +62,9 @@
                 <div class="pt-2 pb-3 space-y-1">
                     <a href="/" data-nav-mobile="search" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
                         Search
+                    </a>
+                    <a href="/browse" data-nav-mobile="browse" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                        Browse
                     </a>
                     <a href="/feeds" data-nav-mobile="feeds" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
                         Feeds
@@ -133,6 +139,8 @@
 
                 if (navType === 'search' && (path === '/' || path.startsWith('/?'))) {
                     isActive = true;
+                } else if (navType === 'browse' && path.startsWith('/browse')) {
+                    isActive = true;
                 } else if (navType === 'feeds' && path.startsWith('/feeds')) {
                     isActive = true;
                 } else if (navType === 'about' && path.startsWith('/about')) {
@@ -151,6 +159,8 @@
                 let isActive = false;
 
                 if (navType === 'search' && (path === '/' || path.startsWith('/?'))) {
+                    isActive = true;
+                } else if (navType === 'browse' && path.startsWith('/browse')) {
                     isActive = true;
                 } else if (navType === 'feeds' && path.startsWith('/feeds')) {
                     isActive = true;

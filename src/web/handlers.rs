@@ -30,6 +30,7 @@ struct SearchTemplate {
     total: usize,
     page: usize,
     total_pages: usize,
+    recent_recipes: Vec<RecipeCardData>,
 }
 
 #[derive(Clone)]
@@ -117,12 +118,43 @@ pub async fn index(
         (results, total, total_pages)
     };
 
+    // Fetch recently indexed recipes for the homepage
+    let recent_recipes = if query.is_empty() {
+        let recipes = db::recipes::list_recently_indexed(&state.pool, 6).await?;
+        let recipe_ids: Vec<i64> = recipes.iter().map(|r| r.id).collect();
+        let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
+
+        recipes
+            .into_iter()
+            .map(|r| {
+                let tags = tags_map.get(&r.id).cloned().unwrap_or_default();
+                RecipeCardData {
+                    id: r.id,
+                    title: r.title,
+                    summary: r.summary.unwrap_or_default(),
+                    tags,
+                    servings: r.servings.map(|s| s.to_string()).unwrap_or_default(),
+                    total_time_minutes: r
+                        .total_time_minutes
+                        .map(|t| t.to_string())
+                        .unwrap_or_default(),
+                    difficulty: r.difficulty.unwrap_or_default(),
+                    image_url: r.image_url.unwrap_or_default(),
+                    source_url: r.source_url.unwrap_or_default(),
+                }
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
     let template = SearchTemplate {
         query,
         results,
         total,
         page: params.page,
         total_pages,
+        recent_recipes,
     };
 
     Ok(Html(template.render().map_err(|e| {
@@ -363,12 +395,12 @@ struct FeedRecipesTemplate {
 pub struct FeedRecipesParams {
     #[serde(default = "default_page")]
     page: usize,
-    feed_id: i64,
 }
 
-/// GET /recipes?feed_id=X - Browse recipes from a specific feed
+/// GET /feeds/:id/recipes - Browse recipes from a specific feed
 pub async fn feed_recipes_page(
     State(state): State<AppState>,
+    Path(feed_id): Path<i64>,
     Query(params): Query<FeedRecipesParams>,
 ) -> Result<impl IntoResponse> {
     let limit = 24;
@@ -376,15 +408,15 @@ pub async fn feed_recipes_page(
 
     // Fetch recipes from this feed
     let recipes =
-        db::recipes::list_recipes_by_feed(&state.pool, params.feed_id, limit as i64, offset as i64)
+        db::recipes::list_recipes_by_feed(&state.pool, feed_id, limit as i64, offset as i64)
             .await?;
-    let total = db::recipes::count_recipes_by_feed(&state.pool, params.feed_id).await?;
+    let total = db::recipes::count_recipes_by_feed(&state.pool, feed_id).await?;
     let total_pages = (total as usize)
         .div_ceil(limit)
         .min(state.settings.pagination.max_pages);
 
     // Get feed title
-    let feed = db::feeds::get_feed(&state.pool, params.feed_id).await?;
+    let feed = db::feeds::get_feed(&state.pool, feed_id).await?;
     let feed_title = feed.title.unwrap_or_else(|| "Unknown Feed".to_string());
 
     // Batch fetch tags for all recipes (avoid N+1 query problem)
@@ -417,7 +449,7 @@ pub async fn feed_recipes_page(
         page: params.page,
         total_pages,
         total,
-        feed_id: params.feed_id,
+        feed_id,
         feed_title,
     };
 
@@ -437,4 +469,78 @@ pub async fn about_page() -> Result<impl IntoResponse> {
     Ok(Html(template.render().map_err(|e| {
         Error::Internal(format!("Template render failed: {e}"))
     })?))
+}
+
+/// Browse page template
+#[derive(Template)]
+#[template(path = "browse.html")]
+struct BrowseTemplate {
+    recipes: Vec<RecipeCardData>,
+    page: usize,
+    total_pages: usize,
+    total: i64,
+}
+
+#[derive(Deserialize)]
+pub struct BrowseParams {
+    #[serde(default = "default_page")]
+    page: usize,
+}
+
+/// GET /browse - Browse all recipes page
+pub async fn browse_page(
+    State(state): State<AppState>,
+    Query(params): Query<BrowseParams>,
+) -> Result<impl IntoResponse> {
+    let limit = 24;
+    let offset = (params.page.saturating_sub(1)) * limit;
+
+    // Fetch all recipes
+    let recipes = db::recipes::list_all_recipes(&state.pool, limit as i64, offset as i64).await?;
+    let total = db::recipes::count_all_recipes(&state.pool).await?;
+    let total_pages = (total as usize)
+        .div_ceil(limit)
+        .min(state.settings.pagination.max_pages);
+
+    // Batch fetch tags for all recipes (avoid N+1 query problem)
+    let recipe_ids: Vec<i64> = recipes.iter().map(|r| r.id).collect();
+    let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
+
+    // Convert to card data
+    let recipe_cards: Vec<RecipeCardData> = recipes
+        .into_iter()
+        .map(|recipe| {
+            let tags = tags_map.get(&recipe.id).cloned().unwrap_or_default();
+            RecipeCardData {
+                id: recipe.id,
+                title: recipe.title,
+                summary: recipe.summary.unwrap_or_default(),
+                tags,
+                servings: recipe.servings.map(|s| s.to_string()).unwrap_or_default(),
+                total_time_minutes: recipe
+                    .total_time_minutes
+                    .map(|t| t.to_string())
+                    .unwrap_or_default(),
+                difficulty: recipe.difficulty.unwrap_or_default(),
+                image_url: recipe.image_url.unwrap_or_default(),
+                source_url: recipe.source_url.unwrap_or_default(),
+            }
+        })
+        .collect();
+
+    let template = BrowseTemplate {
+        recipes: recipe_cards,
+        page: params.page,
+        total_pages,
+        total,
+    };
+
+    Ok(Html(template.render().map_err(|e| {
+        Error::Internal(format!("Template render failed: {e}"))
+    })?))
+}
+
+/// GET /recipes - Redirect to /browse
+pub async fn recipes_redirect() -> impl IntoResponse {
+    axum::response::Redirect::permanent("/browse")
 }

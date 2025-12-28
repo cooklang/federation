@@ -83,9 +83,11 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
     // Web UI routes
     let web_routes = Router::new()
         .route("/", get(web_handlers::index))
-        .route("/recipes", get(web_handlers::feed_recipes_page))
+        .route("/browse", get(web_handlers::browse_page))
+        .route("/recipes", get(web_handlers::recipes_redirect))
         .route("/recipes/:id", get(web_handlers::recipe_detail))
         .route("/feeds", get(web_handlers::feeds_page))
+        .route("/feeds/:id/recipes", get(web_handlers::feed_recipes_page))
         .route("/about", get(web_handlers::about_page))
         .with_state(state.clone());
 

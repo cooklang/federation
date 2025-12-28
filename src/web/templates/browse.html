@@ -1,16 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}{{ feed_title }} - Cooklang Federation{% endblock %}
+{% block title %}Browse Recipes - Cooklang Federation{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <!-- Page Header -->
     <div class="text-center mb-8">
-        <h1 class="text-4xl font-bold text-gray-900 mb-2">{{ feed_title }}</h1>
-        <p class="text-gray-600">{{ total }} recipes</p>
-        <div class="mt-4">
-            <a href="/feeds" class="text-sm text-orange-600 hover:text-orange-700">← Back to all feeds</a>
-        </div>
+        <h1 class="text-4xl font-bold text-gray-900 mb-2">All Recipes</h1>
+        <p class="text-gray-600">{{ total }} recipes available</p>
     </div>
 
     <!-- Recipe Grid -->
@@ -59,7 +56,7 @@
     {% if total_pages > 1 %}
     <div class="flex justify-center space-x-2">
         {% if page > 1 %}
-        <a href="/feeds/{{ feed_id }}/recipes?page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+        <a href="?page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Previous
         </a>
         {% endif %}
@@ -69,7 +66,7 @@
         </span>
 
         {% if page < total_pages %}
-        <a href="/feeds/{{ feed_id }}/recipes?page={{ page + 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+        <a href="?page={{ page + 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Next
         </a>
         {% endif %}
@@ -79,10 +76,8 @@
     {% else %}
     <div class="text-center py-12">
         <div class="text-6xl mb-4">📚</div>
-        <p class="text-gray-600 text-lg">No recipes available yet from this feed.</p>
-        <div class="mt-4">
-            <a href="/feeds" class="text-orange-600 hover:text-orange-700">← Back to all feeds</a>
-        </div>
+        <p class="text-gray-600 text-lg">No recipes available yet.</p>
+        <p class="text-gray-500 text-sm mt-2">Recipes will appear here once feeds are indexed.</p>
     </div>
     {% endif %}
 </div>
