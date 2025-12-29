@@ -170,36 +170,36 @@ struct RecipeTemplate {
 }
 
 #[derive(Clone)]
-struct RecipeData {
-    id: i64,
-    title: String,
-    summary: String,
-    parsed_sections: Option<Vec<crate::indexer::cooklang_parser::RecipeSection>>,
-    ingredients: Vec<IngredientData>,
-    cookware: Vec<String>,
-    tags: Vec<String>,
-    servings: String,
-    total_time_minutes: String,
-    active_time_minutes: String,
-    difficulty: String,
-    image_url: String,
-    source_url: String,
-    feed: FeedData,
-    metadata: Option<crate::indexer::cooklang_parser::RecipeMetadata>,
+pub struct RecipeData {
+    pub id: i64,
+    pub title: String,
+    pub summary: String,
+    pub parsed_sections: Option<Vec<crate::indexer::cooklang_parser::RecipeSection>>,
+    pub ingredients: Vec<IngredientData>,
+    pub cookware: Vec<String>,
+    pub tags: Vec<String>,
+    pub servings: String,
+    pub total_time_minutes: String,
+    pub active_time_minutes: String,
+    pub difficulty: String,
+    pub image_url: String,
+    pub source_url: String,
+    pub feed: FeedData,
+    pub metadata: Option<crate::indexer::cooklang_parser::RecipeMetadata>,
 }
 
 #[derive(Clone)]
-struct IngredientData {
-    name: String,
-    quantity: String,
-    unit: String,
+pub struct IngredientData {
+    pub name: String,
+    pub quantity: String,
+    pub unit: String,
 }
 
 #[derive(Clone)]
-struct FeedData {
-    id: i64,
-    title: String,
-    author: String,
+pub struct FeedData {
+    pub id: i64,
+    pub title: String,
+    pub author: String,
 }
 
 /// GET /recipes/:id - Recipe detail page
