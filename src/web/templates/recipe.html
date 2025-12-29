@@ -1,5 +1,13 @@
 {% extends "base.html" %}
 
+{% block head_extra %}
+{% if !schema_json.is_empty() %}
+<script type="application/ld+json">
+{{ schema_json|safe }}
+</script>
+{% endif %}
+{% endblock %}
+
 {% block title %}{% if let Some(metadata) = recipe.metadata %}{% if let Some(title) = metadata.title %}{{ title }}{% else %}{{ recipe.title }}{% endif %}{% else %}{{ recipe.title }}{% endif %} - Cooklang Federation{% endblock %}
 
 {% block content %}
