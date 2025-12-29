@@ -1,9 +1,9 @@
 //! Schema.org JSON-LD generation for recipes
 //! Ported from CookCLI's cooklang_to_schema.rs
 
-use serde_json::{json, Value};
-use super::handlers::{RecipeData, IngredientData};
+use super::handlers::{IngredientData, RecipeData};
 use crate::indexer::cooklang_parser::{RecipeSection, StepItem};
+use serde_json::{json, Value};
 
 /// Extract first number from a string like "30 minutes" -> 30
 fn extract_number(s: &str) -> Option<i32> {
@@ -64,15 +64,23 @@ pub fn recipe_to_schema_json(recipe: &RecipeData) -> Value {
     });
 
     // Name: prefer metadata title, fallback to recipe title
-    let name = recipe.metadata.as_ref()
+    let name = recipe
+        .metadata
+        .as_ref()
         .and_then(|m| m.title.as_ref())
         .unwrap_or(&recipe.title);
     schema["name"] = json!(name);
 
     // Description: prefer metadata description, fallback to summary
-    let description = recipe.metadata.as_ref()
+    let description = recipe
+        .metadata
+        .as_ref()
         .and_then(|m| m.description.as_ref())
-        .or(if recipe.summary.is_empty() { None } else { Some(&recipe.summary) });
+        .or(if recipe.summary.is_empty() {
+            None
+        } else {
+            Some(&recipe.summary)
+        });
     if let Some(desc) = description {
         schema["description"] = json!(desc);
     }
@@ -83,9 +91,13 @@ pub fn recipe_to_schema_json(recipe: &RecipeData) -> Value {
     }
 
     // Author: prefer metadata author, fallback to feed author
-    let author = recipe.metadata.as_ref()
-        .and_then(|m| m.author.as_ref())
-        .or(if recipe.feed.author.is_empty() { None } else { Some(&recipe.feed.author) });
+    let author = recipe.metadata.as_ref().and_then(|m| m.author.as_ref()).or(
+        if recipe.feed.author.is_empty() {
+            None
+        } else {
+            Some(&recipe.feed.author)
+        },
+    );
     if let Some(author_name) = author {
         schema["author"] = json!({
             "@type": "Person",
@@ -108,11 +120,23 @@ pub fn recipe_to_schema_json(recipe: &RecipeData) -> Value {
     }
 
     // Servings
-    let servings = recipe.metadata.as_ref()
+    let servings = recipe
+        .metadata
+        .as_ref()
         .and_then(|m| m.servings.as_ref())
-        .or(if recipe.servings.is_empty() { None } else { Some(&recipe.servings) });
+        .or(if recipe.servings.is_empty() {
+            None
+        } else {
+            Some(&recipe.servings)
+        });
     if let Some(s) = servings {
-        schema["recipeYield"] = json!(format!("{} servings", s));
+        // Only add " servings" if not already present
+        let yield_text = if s.to_lowercase().contains("serving") {
+            s.to_string()
+        } else {
+            format!("{} servings", s)
+        };
+        schema["recipeYield"] = json!(yield_text);
     }
 
     // Time fields
@@ -203,13 +227,17 @@ fn create_instructions_list(sections: &[RecipeSection]) -> Vec<Value> {
     if has_named_sections {
         // Use HowToSection grouping
         for section in sections {
-            let steps: Vec<Value> = section.steps.iter().enumerate().map(|(_i, step)| {
-                let text = step_to_text(step);
-                json!({
-                    "@type": "HowToStep",
-                    "text": text
+            let steps: Vec<Value> = section
+                .steps
+                .iter()
+                .map(|step| {
+                    let text = step_to_text(step);
+                    json!({
+                        "@type": "HowToStep",
+                        "text": text
+                    })
                 })
-            }).collect();
+                .collect();
 
             if !steps.is_empty() {
                 let section_json = if let Some(name) = &section.name {
@@ -254,7 +282,9 @@ fn step_to_text(step: &crate::indexer::cooklang_parser::StepData) -> String {
             StepItem::Text { value } => text.push_str(value),
             StepItem::Ingredient { name, .. } => text.push_str(name),
             StepItem::Cookware { name, .. } => text.push_str(name),
-            StepItem::Timer { text: timer_text, .. } => text.push_str(timer_text),
+            StepItem::Timer {
+                text: timer_text, ..
+            } => text.push_str(timer_text),
             StepItem::Quantity { value } => text.push_str(value),
         }
     }
@@ -269,7 +299,10 @@ mod tests {
     fn test_format_iso_duration() {
         assert_eq!(format_iso_duration("30 minutes"), Some("PT30M".to_string()));
         assert_eq!(format_iso_duration("1 hour"), Some("PT1H".to_string()));
-        assert_eq!(format_iso_duration("1 hour 30 minutes"), Some("PT1H30M".to_string()));
+        assert_eq!(
+            format_iso_duration("1 hour 30 minutes"),
+            Some("PT1H30M".to_string())
+        );
         assert_eq!(format_iso_duration("45 min"), Some("PT45M".to_string()));
         assert_eq!(format_iso_duration("15"), Some("PT15M".to_string()));
     }

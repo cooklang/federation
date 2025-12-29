@@ -768,7 +768,7 @@ feeds:
     title: "Peter Miller's cook"
     feed_type: github
     branch: "main"
-    enabled: true
+    enabled: false
     tags:
       - cookbook
       - github

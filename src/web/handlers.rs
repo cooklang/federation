@@ -278,8 +278,7 @@ pub async fn recipe_detail(
 
     // Generate Schema.org JSON-LD
     let schema = super::schema::recipe_to_schema_json(&recipe_data);
-    let schema_json = serde_json::to_string_pretty(&schema)
-        .unwrap_or_else(|_| "{}".to_string());
+    let schema_json = serde_json::to_string_pretty(&schema).unwrap_or_else(|_| "{}".to_string());
 
     let template = RecipeTemplate {
         recipe: recipe_data,
