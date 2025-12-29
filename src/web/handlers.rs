@@ -167,6 +167,7 @@ pub async fn index(
 #[template(path = "recipe.html")]
 struct RecipeTemplate {
     recipe: RecipeData,
+    schema_json: String,
 }
 
 #[derive(Clone)]
@@ -275,8 +276,14 @@ pub async fn recipe_detail(
         metadata,
     };
 
+    // Generate Schema.org JSON-LD
+    let schema = super::schema::recipe_to_schema_json(&recipe_data);
+    let schema_json = serde_json::to_string_pretty(&schema)
+        .unwrap_or_else(|_| "{}".to_string());
+
     let template = RecipeTemplate {
         recipe: recipe_data,
+        schema_json,
     };
 
     Ok(Html(template.render().map_err(|e| {
