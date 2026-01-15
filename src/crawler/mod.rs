@@ -187,6 +187,20 @@ impl Crawler {
             .as_ref()
             .ok_or_else(|| Error::Validation(format!("Entry {} has no enclosure URL", entry.id)))?;
 
+        // Fetch the actual .cook file content from the enclosure URL
+        let content = match self.fetch_recipe_content(enclosure_url).await {
+            Ok(c) => Some(c),
+            Err(e) => {
+                warn!("Failed to fetch recipe content from {}: {}", enclosure_url, e);
+                None
+            }
+        };
+
+        // Calculate content hash for deduplication
+        let content_hash = content
+            .as_ref()
+            .map(|c| db::recipes::calculate_content_hash(&entry.title, Some(c)));
+
         // Create or update recipe
         let new_recipe = NewRecipe {
             feed_id,
@@ -194,7 +208,7 @@ impl Crawler {
             title: entry.title.clone(),
             source_url: entry.source_url.clone(),
             enclosure_url: enclosure_url.clone(),
-            content: None, // Will be fetched separately
+            content,
             summary: entry.summary.clone(),
             servings: entry.metadata.servings,
             total_time_minutes: entry.metadata.total_time,
@@ -202,7 +216,7 @@ impl Crawler {
             difficulty: entry.metadata.difficulty.clone(),
             image_url: entry.image_url.clone(),
             published_at: entry.published,
-            content_hash: None, // Will be calculated when content is fetched
+            content_hash,
         };
 
         let (recipe, is_new) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;
