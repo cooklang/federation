@@ -932,6 +932,17 @@ feeds:
     added_by: "dubadub"
     added_at: "2025-12-28"
 
+  - url: "https://cocktailti.me/recipes/feed"
+    title: "Cocktailti.me Recipe Feed"
+    feed_type: web
+    enabled: true
+    tags:
+      - cocktails
+      - snacks
+    notes: "Cocktail recipes from Cocktailti.me"
+    added_by: "@hilli"
+    added_at: "2026-01-15"
+
 # Validation configuration
 validation:
   max_feeds: 1000
