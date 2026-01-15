@@ -775,6 +775,8 @@ feeds:
     notes: "Found via GitHub search (⭐ 0)"
     added_by: "dubadub"
     added_at: "2025-12-28"
+    disabled_at: "2025-12-28"
+    disabled_by: "dubadub"
 
   - url: "https://github.com/LudeeD/comidadaboa"
     title: "A zero bullshit recipe website"
