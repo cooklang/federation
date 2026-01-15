@@ -63,4 +63,10 @@ pub enum Commands {
 
     /// Run database migrations
     Migrate,
+
+    /// Validate a feed URL
+    Validate {
+        /// Feed URL to validate
+        url: String,
+    },
 }

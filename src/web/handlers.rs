@@ -550,3 +550,64 @@ pub async fn browse_page(
 pub async fn recipes_redirect() -> impl IntoResponse {
     axum::response::Redirect::permanent("/browse")
 }
+
+/// Validate page template
+#[derive(Template)]
+#[template(path = "validate.html")]
+struct ValidateTemplate {
+    url: String,
+    result: Option<ValidateResult>,
+}
+
+#[derive(Clone)]
+struct ValidateResult {
+    valid: bool,
+    title: String,
+    feed_type: String,
+    entry_count: usize,
+    sample_entries: Vec<String>,
+    error: String,
+}
+
+#[derive(Deserialize)]
+pub struct ValidateParams {
+    #[serde(default)]
+    url: String,
+}
+
+/// GET /validate - Validate feed page
+pub async fn validate_page(Query(params): Query<ValidateParams>) -> Result<impl IntoResponse> {
+    let result = if params.url.is_empty() {
+        None
+    } else {
+        Some(
+            match crate::utils::feed_validation::validate_feed_url(&params.url).await {
+                Ok(info) => ValidateResult {
+                    valid: true,
+                    title: info.title,
+                    feed_type: info.feed_type,
+                    entry_count: info.entry_count,
+                    sample_entries: info.sample_entries,
+                    error: String::new(),
+                },
+                Err(e) => ValidateResult {
+                    valid: false,
+                    title: String::new(),
+                    feed_type: String::new(),
+                    entry_count: 0,
+                    sample_entries: vec![],
+                    error: e.to_string(),
+                },
+            },
+        )
+    };
+
+    let template = ValidateTemplate {
+        url: params.url,
+        result,
+    };
+
+    Ok(Html(template.render().map_err(|e| {
+        Error::Internal(format!("Template render failed: {e}"))
+    })?))
+}

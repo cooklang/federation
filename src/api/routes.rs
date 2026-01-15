@@ -89,6 +89,7 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
         .route("/feeds", get(web_handlers::feeds_page))
         .route("/feeds/:id/recipes", get(web_handlers::feed_recipes_page))
         .route("/about", get(web_handlers::about_page))
+        .route("/validate", get(web_handlers::validate_page))
         .with_state(state.clone());
 
     // Health check routes (no state needed for health, state needed for ready)

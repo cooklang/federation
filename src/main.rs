@@ -54,6 +54,9 @@ async fn main() -> Result<()> {
         Commands::Publish { input, output } => {
             publish_recipes(input, output).await?;
         }
+        Commands::Validate { url } => {
+            validate_feed(url).await?;
+        }
     }
 
     Ok(())
@@ -261,4 +264,8 @@ async fn download_recipe(settings: Settings, recipe_id: i64, output: Option<Stri
 
 async fn publish_recipes(input: String, output: String) -> Result<()> {
     federation::cli::commands::publish(&input, &output, None, None).await
+}
+
+async fn validate_feed(url: String) -> Result<()> {
+    federation::cli::commands::validate_feed(&url).await
 }

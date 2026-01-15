@@ -1,3 +1,4 @@
+use crate::utils::feed_validation::validate_feed_url;
 use crate::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -328,6 +329,30 @@ fn escape_xml(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+/// Validate a feed URL
+pub async fn validate_feed(url: &str) -> Result<()> {
+    match validate_feed_url(url).await {
+        Ok(info) => {
+            println!("\x1b[32m\u{2713}\x1b[0m Valid feed: \"{}\"", info.title);
+            println!("  Type: {}", info.feed_type);
+            println!("  Entries: {}", info.entry_count);
+
+            if !info.sample_entries.is_empty() {
+                println!("  Sample entries:");
+                for entry in &info.sample_entries {
+                    println!("    - {}", entry);
+                }
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            println!("\x1b[31m\u{2717}\x1b[0m Invalid feed: {}", e);
+            Err(e)
+        }
+    }
 }
 
 // Response types (matching API models)
