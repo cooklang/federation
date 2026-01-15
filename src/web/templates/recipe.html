@@ -172,7 +172,7 @@
 
         <!-- Feed Info -->
         <div class="border-t border-gray-200 pt-4 text-sm text-gray-600">
-            <p>From: <a href="/recipes?feed_id={{ recipe.feed.id }}" class="font-semibold text-orange-600 hover:text-orange-700 hover:underline">{{ recipe.feed.title }}</a>
+            <p>From: <a href="/feeds/{{ recipe.feed.id }}/recipes" class="font-semibold text-orange-600 hover:text-orange-700 hover:underline">{{ recipe.feed.title }}</a>
             {% if !recipe.feed.author.is_empty() %} by {{ recipe.feed.author }}{% endif %}
             </p>
         </div>
