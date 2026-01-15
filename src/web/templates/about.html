@@ -264,6 +264,12 @@ cargo run -- publish --input ./my-recipes --output feed.xml
                         <code class="bg-yellow-100 px-1 rounded">.cook</code> file, not an HTML page. This is how the federation fetches your recipe content.
                     </p>
                 </div>
+
+                <div class="bg-blue-50 border-l-4 border-blue-400 p-3 mt-3">
+                    <p class="text-sm text-blue-800">
+                        <strong>Tip:</strong> Use our <a href="/validate" class="underline font-medium hover:text-blue-900">Feed Validator</a> to check that your feed is valid before submitting it to the federation.
+                    </p>
+                </div>
             </div>
 
             <!-- Step 3 -->
@@ -863,8 +869,8 @@ cargo run -- download 123 124 125 --output ./my-recipes/</code></pre>
                 <pre class="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto text-sm"><code># Generate Atom feed from directory of .cook files
 cargo run -- publish --input ./my-recipes --output feed.xml --author "Your Name"
 
-# Validate feed before publishing
-cargo run -- validate-feed feed.xml</code></pre>
+# Validate a feed URL before registering
+cargo run -- validate https://example.com/feed.xml</code></pre>
             </div>
 
             <div>
