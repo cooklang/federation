@@ -8,6 +8,7 @@ pub mod scheduler;
 use crate::config::CrawlerConfig;
 use crate::db::{self, models::*, DbPool};
 use crate::error::{Error, Result};
+use crate::indexer::parse_cooklang_full;
 use crate::utils::validation;
 use fetcher::{Fetcher, RateLimiter, RecipeContentResult};
 use parser::{parse_feed, ParsedEntry};
@@ -370,6 +371,14 @@ impl Crawler {
                 ProcessResult::Updated
             }
             None => {
+                // Determine image URL: prefer Cooklang metadata, fallback to feed entry image
+                let metadata_image = content.as_ref().and_then(|c| {
+                    parse_cooklang_full(c)
+                        .ok()
+                        .and_then(|parsed| parsed.metadata.and_then(|m| m.image))
+                });
+                let image_url = metadata_image.or_else(|| entry.image_url.clone());
+
                 // Create new recipe
                 let new_recipe = NewRecipe {
                     feed_id,
@@ -383,7 +392,7 @@ impl Crawler {
                     total_time_minutes: entry.metadata.total_time,
                     active_time_minutes: entry.metadata.active_time,
                     difficulty: entry.metadata.difficulty.clone(),
-                    image_url: entry.image_url.clone(),
+                    image_url,
                     published_at: entry.published,
                     content_hash,
                     content_etag,

@@ -29,6 +29,7 @@ pub struct RecipeMetadata {
     pub diet: Option<String>,
     pub author: Option<String>,
     pub source: Option<String>,
+    pub image: Option<String>,
     pub custom: Vec<(String, String)>,
 }
 
@@ -174,6 +175,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                 | Some("diet")
                 | Some("author")
                 | Some("source")
+                | Some("image")
         ) {
             if let (Some(k), Some(v)) = (key.as_str(), value.as_str()) {
                 custom.push((k.to_string(), v.to_string()));
@@ -255,6 +257,11 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                 .get("source")
                 .and_then(|s| s.as_str())
                 .map(|s| s.to_string()),
+            image: meta
+                .map
+                .get("image")
+                .and_then(|i| i.as_str())
+                .map(|i| i.to_string()),
             custom,
         })
     };

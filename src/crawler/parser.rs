@@ -111,13 +111,29 @@ fn parse_entry(entry: feed_rs::model::Entry) -> Result<ParsedEntry> {
         })
         .map(|l| l.href.clone());
 
-    // Get image URL
-    let image_url = entry.media.first().and_then(|m| {
-        m.content
-            .first()
-            .and_then(|c| c.url.as_ref().map(|u| u.to_string()))
-            .or_else(|| m.thumbnails.first().map(|t| t.image.uri.to_string()))
-    });
+    // Get image URL from media elements
+    let image_url = entry
+        .media
+        .first()
+        .and_then(|m| {
+            m.content
+                .first()
+                .and_then(|c| c.url.as_ref().map(|u| u.to_string()))
+                .or_else(|| m.thumbnails.first().map(|t| t.image.uri.to_string()))
+        })
+        // Fallback: check for image enclosure
+        .or_else(|| {
+            entry.links.iter().find_map(|l| {
+                if l.rel.as_deref() == Some("enclosure") {
+                    if let Some(ref media_type) = l.media_type {
+                        if media_type.starts_with("image/") {
+                            return Some(l.href.clone());
+                        }
+                    }
+                }
+                None
+            })
+        });
 
     // Get published date
     let published = entry.published;

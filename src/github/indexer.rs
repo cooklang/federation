@@ -319,8 +319,24 @@ impl GitHubIndexer {
             .unwrap_or(file_path)
             .to_string();
 
-        // Look for image with the same name
-        let image_url = Self::find_recipe_image(
+        // Parse Cooklang content to extract metadata
+        let parsed = crate::indexer::parse_cooklang_full(&content);
+        let (summary, servings, total_time, metadata_image) = if let Ok(ref parsed_data) = parsed {
+            // Extract metadata from parsed content
+            let summary = None; // Can be enhanced to extract from recipe notes
+            let servings = None; // Can be extracted from metadata
+            let total_time = None; // Can be extracted from timer sum
+            let metadata_image = parsed_data
+                .metadata
+                .as_ref()
+                .and_then(|m| m.image.clone());
+            (summary, servings, total_time, metadata_image)
+        } else {
+            (None, None, None, None)
+        };
+
+        // Look for image with the same name (sibling file) as fallback
+        let sibling_image_url = Self::find_recipe_image(
             file_path,
             tree_entries,
             &github_feed.owner,
@@ -328,17 +344,8 @@ impl GitHubIndexer {
             &github_feed.default_branch,
         );
 
-        // Parse Cooklang content to extract metadata
-        let parsed = crate::indexer::parse_cooklang_full(&content);
-        let (summary, servings, total_time) = if parsed.is_ok() {
-            // Extract metadata from parsed content
-            let summary = None; // Can be enhanced to extract from recipe notes
-            let servings = None; // Can be extracted from metadata
-            let total_time = None; // Can be extracted from timer sum
-            (summary, servings, total_time)
-        } else {
-            (None, None, None)
-        };
+        // Prioritize metadata image, fallback to sibling image file
+        let image_url = metadata_image.or(sibling_image_url);
 
         let html_url = format!(
             "https://github.com/{}/{}/blob/{}/{}",
