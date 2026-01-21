@@ -28,14 +28,9 @@ async fn test_reindex_deletes_recipes_and_resets_feed() {
     .expect("Failed to create feed");
 
     // Set some caching headers on the feed
-    feeds::update_feed_fetch_info(
-        &pool,
-        feed.id,
-        Some("etag-123"),
-        Some(chrono::Utc::now()),
-    )
-    .await
-    .expect("Failed to update feed fetch info");
+    feeds::update_feed_fetch_info(&pool, feed.id, Some("etag-123"), Some(chrono::Utc::now()))
+        .await
+        .expect("Failed to update feed fetch info");
 
     // Create some recipes
     for i in 1..=3 {
