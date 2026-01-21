@@ -377,6 +377,9 @@ impl GitHubIndexer {
                 image_url,
                 published_at: None,
                 content_hash,
+                content_etag: None,
+                content_last_modified: None,
+                feed_entry_updated: None,
             };
 
             let recipe = db::recipes::create_recipe(&self.pool, &new_recipe).await?;

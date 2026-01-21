@@ -55,6 +55,9 @@ async fn test_duplicate_detection_by_hash() {
         image_url: None,
         published_at: None,
         content_hash: Some(hash.clone()),
+        content_etag: None,
+        content_last_modified: None,
+        feed_entry_updated: None,
     };
 
     let recipe2 = NewRecipe {
@@ -72,6 +75,9 @@ async fn test_duplicate_detection_by_hash() {
         image_url: None,
         published_at: None,
         content_hash: Some(hash.clone()),
+        content_etag: None,
+        content_last_modified: None,
+        feed_entry_updated: None,
     };
 
     // Create both recipes
@@ -163,6 +169,9 @@ async fn test_different_recipes_have_different_hashes() {
         image_url: None,
         published_at: None,
         content_hash: Some(hash1.clone()),
+        content_etag: None,
+        content_last_modified: None,
+        feed_entry_updated: None,
     };
 
     let recipe2 = NewRecipe {
@@ -180,6 +189,9 @@ async fn test_different_recipes_have_different_hashes() {
         image_url: None,
         published_at: None,
         content_hash: Some(hash2.clone()),
+        content_etag: None,
+        content_last_modified: None,
+        feed_entry_updated: None,
     };
 
     // Hashes should be different
@@ -259,6 +271,9 @@ async fn test_find_recipe_by_content_hash() {
         image_url: None,
         published_at: None,
         content_hash: Some(hash.clone()),
+        content_etag: None,
+        content_last_modified: None,
+        feed_entry_updated: None,
     };
 
     let (recipe, _) = recipes::get_or_create_recipe(&pool, &new_recipe)

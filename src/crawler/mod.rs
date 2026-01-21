@@ -9,12 +9,23 @@ use crate::config::CrawlerConfig;
 use crate::db::{self, models::*, DbPool};
 use crate::error::{Error, Result};
 use crate::utils::validation;
-use fetcher::{Fetcher, RateLimiter};
+use fetcher::{Fetcher, RateLimiter, RecipeContentResult};
 use parser::{parse_feed, ParsedEntry};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+
+/// Result of processing a single feed entry
+#[derive(Debug)]
+enum ProcessResult {
+    /// New recipe was created
+    New,
+    /// Existing recipe was updated
+    Updated,
+    /// Recipe was skipped (no changes detected)
+    Skipped,
+}
 
 /// Main crawler that orchestrates feed fetching and parsing
 pub struct Crawler {
@@ -144,16 +155,13 @@ impl Crawler {
         // Process entries
         let mut new_recipes = 0;
         let mut updated_recipes = 0;
+        let mut skipped_recipes = 0;
 
         for entry in parsed_feed.entries {
             match self.process_entry(pool, feed.id, &entry).await {
-                Ok(is_new) => {
-                    if is_new {
-                        new_recipes += 1;
-                    } else {
-                        updated_recipes += 1;
-                    }
-                }
+                Ok(ProcessResult::New) => new_recipes += 1,
+                Ok(ProcessResult::Updated) => updated_recipes += 1,
+                Ok(ProcessResult::Skipped) => skipped_recipes += 1,
                 Err(e) => {
                     warn!("Failed to process entry {}: {}", entry.id, e);
                 }
@@ -164,14 +172,15 @@ impl Crawler {
         db::feeds::update_feed_status(pool, feed.id, "active", 0, None).await?;
 
         info!(
-            "Completed crawl of {}: {} new, {} updated",
-            feed_url, new_recipes, updated_recipes
+            "Completed crawl of {}: {} new, {} updated, {} skipped (cached)",
+            feed_url, new_recipes, updated_recipes, skipped_recipes
         );
 
         Ok(CrawlResult {
             feed_id: feed.id,
             new_recipes,
             updated_recipes,
+            skipped_recipes,
         })
     }
 
@@ -180,61 +189,222 @@ impl Crawler {
         pool: &DbPool,
         feed_id: i64,
         entry: &ParsedEntry,
-    ) -> Result<bool> {
+    ) -> Result<ProcessResult> {
         // Skip entries without enclosure URL (no .cook file)
         let enclosure_url = entry
             .enclosure_url
             .as_ref()
             .ok_or_else(|| Error::Validation(format!("Entry {} has no enclosure URL", entry.id)))?;
 
-        // Fetch the actual .cook file content from the enclosure URL
-        let content = match self.fetch_recipe_content(enclosure_url).await {
-            Ok(c) => Some(c),
-            Err(e) => {
-                warn!("Failed to fetch recipe content from {}: {}", enclosure_url, e);
-                None
+        // Check if recipe already exists
+        let existing_recipe =
+            db::recipes::find_by_feed_and_external_id(pool, feed_id, &entry.id).await?;
+
+        // Determine if we need to fetch content based on entry's updated timestamp
+        let should_fetch = match &existing_recipe {
+            Some(recipe) => {
+                // If entry has updated timestamp, compare with stored feed_entry_updated
+                match (entry.updated, recipe.feed_entry_updated) {
+                    (Some(entry_updated), Some(stored_updated)) => {
+                        // Only fetch if entry has been updated since last fetch
+                        if entry_updated > stored_updated {
+                            debug!(
+                                "Entry {} updated ({} > {}), will fetch",
+                                entry.id, entry_updated, stored_updated
+                            );
+                            true
+                        } else {
+                            debug!(
+                                "Entry {} unchanged ({} <= {}), skipping fetch",
+                                entry.id, entry_updated, stored_updated
+                            );
+                            false
+                        }
+                    }
+                    (Some(_entry_updated), None) => {
+                        // First time we're tracking entry updated timestamp
+                        debug!(
+                            "Entry {} has updated timestamp, stored doesn't - will fetch",
+                            entry.id
+                        );
+                        true
+                    }
+                    (None, _) => {
+                        // Entry doesn't have updated timestamp, use conditional HTTP request
+                        debug!(
+                            "Entry {} has no updated timestamp, will use conditional fetch",
+                            entry.id
+                        );
+                        true
+                    }
+                }
+            }
+            None => {
+                // New recipe, definitely need to fetch
+                debug!("Entry {} is new, will fetch", entry.id);
+                true
             }
         };
+
+        if !should_fetch {
+            // Entry hasn't changed based on feed timestamp, skip fetch entirely
+            return Ok(ProcessResult::Skipped);
+        }
+
+        // Extract domain for rate limiting
+        let url = validation::validate_url(enclosure_url)?;
+        let domain = url
+            .host_str()
+            .ok_or_else(|| Error::Validation("Invalid enclosure URL: no host".to_string()))?;
+
+        // Apply rate limiting before fetching recipe content
+        self.apply_rate_limit(domain).await;
+
+        // Fetch content with conditional request if we have cached ETag/Last-Modified
+        let (content, content_etag, content_last_modified) = match &existing_recipe {
+            Some(recipe) => {
+                // Use conditional request with stored caching headers
+                let result = self
+                    .fetcher
+                    .fetch_recipe_content(
+                        enclosure_url,
+                        recipe.content_etag.as_deref(),
+                        recipe
+                            .content_last_modified
+                            .as_ref()
+                            .map(|dt| dt.to_rfc2822())
+                            .as_deref(),
+                    )
+                    .await;
+
+                match result {
+                    Ok(RecipeContentResult::Fetched {
+                        content,
+                        etag,
+                        last_modified,
+                    }) => {
+                        debug!("Fetched updated content for {}", entry.id);
+                        (Some(content), etag, last_modified)
+                    }
+                    Ok(RecipeContentResult::NotModified) => {
+                        // Content unchanged, just update the feed_entry_updated timestamp
+                        debug!("Content not modified for {} (304)", entry.id);
+                        db::recipes::update_feed_entry_timestamp(
+                            pool,
+                            recipe.id,
+                            entry.updated.as_ref(),
+                        )
+                        .await?;
+                        return Ok(ProcessResult::Skipped);
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to fetch recipe content from {}: {}",
+                            enclosure_url, e
+                        );
+                        (None, None, None)
+                    }
+                }
+            }
+            None => {
+                // New recipe, fetch without conditional headers
+                match self
+                    .fetcher
+                    .fetch_recipe_content(enclosure_url, None, None)
+                    .await
+                {
+                    Ok(RecipeContentResult::Fetched {
+                        content,
+                        etag,
+                        last_modified,
+                    }) => (Some(content), etag, last_modified),
+                    Ok(RecipeContentResult::NotModified) => {
+                        // Shouldn't happen without conditional headers, but handle gracefully
+                        (None, None, None)
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to fetch recipe content from {}: {}",
+                            enclosure_url, e
+                        );
+                        (None, None, None)
+                    }
+                }
+            }
+        };
+
+        // Parse Last-Modified string to DateTime
+        let content_last_modified_dt = content_last_modified
+            .as_ref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc2822(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
 
         // Calculate content hash for deduplication
         let content_hash = content
             .as_ref()
             .map(|c| db::recipes::calculate_content_hash(&entry.title, Some(c)));
 
-        // Create or update recipe
-        let new_recipe = NewRecipe {
-            feed_id,
-            external_id: entry.id.clone(),
-            title: entry.title.clone(),
-            source_url: entry.source_url.clone(),
-            enclosure_url: enclosure_url.clone(),
-            content,
-            summary: entry.summary.clone(),
-            servings: entry.metadata.servings,
-            total_time_minutes: entry.metadata.total_time,
-            active_time_minutes: entry.metadata.active_time,
-            difficulty: entry.metadata.difficulty.clone(),
-            image_url: entry.image_url.clone(),
-            published_at: entry.published,
-            content_hash,
+        let result = match existing_recipe {
+            Some(recipe) => {
+                // Update existing recipe with new content
+                if let Some(ref content_str) = content {
+                    db::recipes::update_recipe_with_content(
+                        pool,
+                        recipe.id,
+                        content_str,
+                        content_hash.as_deref(),
+                        content_etag.as_deref(),
+                        content_last_modified_dt.as_ref(),
+                        entry.updated.as_ref(),
+                    )
+                    .await?;
+                }
+
+                // Update tags
+                if !entry.tags.is_empty() {
+                    db::tags::clear_recipe_tags(pool, recipe.id).await?;
+                    db::tags::add_recipe_tags(pool, recipe.id, &entry.tags).await?;
+                }
+
+                debug!("Updated recipe {}: {}", recipe.id, recipe.title);
+                ProcessResult::Updated
+            }
+            None => {
+                // Create new recipe
+                let new_recipe = NewRecipe {
+                    feed_id,
+                    external_id: entry.id.clone(),
+                    title: entry.title.clone(),
+                    source_url: entry.source_url.clone(),
+                    enclosure_url: enclosure_url.clone(),
+                    content,
+                    summary: entry.summary.clone(),
+                    servings: entry.metadata.servings,
+                    total_time_minutes: entry.metadata.total_time,
+                    active_time_minutes: entry.metadata.active_time,
+                    difficulty: entry.metadata.difficulty.clone(),
+                    image_url: entry.image_url.clone(),
+                    published_at: entry.published,
+                    content_hash,
+                    content_etag,
+                    content_last_modified: content_last_modified_dt,
+                    feed_entry_updated: entry.updated,
+                };
+
+                let (recipe, _) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;
+
+                // Add tags
+                if !entry.tags.is_empty() {
+                    db::tags::clear_recipe_tags(pool, recipe.id).await?;
+                    db::tags::add_recipe_tags(pool, recipe.id, &entry.tags).await?;
+                }
+
+                debug!("Created new recipe {}: {}", recipe.id, recipe.title);
+                ProcessResult::New
+            }
         };
 
-        let (recipe, is_new) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;
-
-        // Add tags
-        if !entry.tags.is_empty() {
-            db::tags::clear_recipe_tags(pool, recipe.id).await?;
-            db::tags::add_recipe_tags(pool, recipe.id, &entry.tags).await?;
-        }
-
-        debug!(
-            "Processed recipe {}: {} ({})",
-            recipe.id,
-            recipe.title,
-            if is_new { "new" } else { "updated" }
-        );
-
-        Ok(is_new)
+        Ok(result)
     }
 
     async fn apply_rate_limit(&self, domain: &str) {
@@ -248,28 +418,6 @@ impl Crawler {
         drop(limiters);
 
         limiter.wait().await;
-    }
-
-    /// Fetch .cook file content for a recipe
-    pub async fn fetch_recipe_content(&self, recipe_url: &str) -> Result<String> {
-        debug!("Fetching recipe content: {}", recipe_url);
-
-        // Validate URL
-        validation::validate_url(recipe_url)?;
-
-        // Fetch with size limit
-        let fetcher = Fetcher::new(self.config.user_agent.clone(), self.config.max_recipe_size)?;
-
-        let result = fetcher.fetch(recipe_url).await?;
-
-        // Verify content type
-        if let Some(content_type) = &result.content_type {
-            if !content_type.contains("text/plain") && !content_type.contains("text/") {
-                warn!("Unexpected content type for recipe: {}", content_type);
-            }
-        }
-
-        Ok(result.content)
     }
 
     /// Fetch feed with conditional requests for scheduler
@@ -313,11 +461,6 @@ impl Crawler {
     pub fn parse_feed(&self, content: &str) -> Result<parser::ParsedFeed> {
         parser::parse_feed(content)
     }
-
-    /// Fetch recipe content (alias for scheduler)
-    pub async fn fetch_recipe(&self, url: &str) -> Result<String> {
-        self.fetch_recipe_content(url).await
-    }
 }
 
 /// Feed fetch result for scheduler
@@ -334,6 +477,7 @@ pub struct CrawlResult {
     pub feed_id: i64,
     pub new_recipes: usize,
     pub updated_recipes: usize,
+    pub skipped_recipes: usize,
 }
 
 #[cfg(test)]

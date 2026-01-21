@@ -134,9 +134,10 @@ pub async fn create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<Reci
         INSERT INTO recipes (
             feed_id, external_id, title, source_url, enclosure_url,
             content, summary, servings, total_time_minutes, active_time_minutes,
-            difficulty, image_url, published_at, updated_at, created_at, content_hash
+            difficulty, image_url, published_at, updated_at, created_at, content_hash,
+            content_etag, content_last_modified, feed_entry_updated
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         "#,
     )
@@ -156,6 +157,9 @@ pub async fn create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<Reci
     .bind(now)
     .bind(now)
     .bind(&new_recipe.content_hash)
+    .bind(&new_recipe.content_etag)
+    .bind(new_recipe.content_last_modified)
+    .bind(new_recipe.feed_entry_updated)
     .fetch_one(pool)
     .await?;
 
@@ -392,6 +396,70 @@ pub async fn get_or_create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Resu
     }
 }
 
+/// Find existing recipe by feed ID and external ID (for cache checking)
+pub async fn find_by_feed_and_external_id(
+    pool: &DbPool,
+    feed_id: i64,
+    external_id: &str,
+) -> Result<Option<Recipe>> {
+    let recipe =
+        sqlx::query_as::<_, Recipe>("SELECT * FROM recipes WHERE feed_id = ? AND external_id = ?")
+            .bind(feed_id)
+            .bind(external_id)
+            .fetch_optional(pool)
+            .await?;
+
+    Ok(recipe)
+}
+
+/// Update recipe content and caching info
+pub async fn update_recipe_with_content(
+    pool: &DbPool,
+    recipe_id: i64,
+    content: &str,
+    content_hash: Option<&str>,
+    content_etag: Option<&str>,
+    content_last_modified: Option<&chrono::DateTime<chrono::Utc>>,
+    feed_entry_updated: Option<&chrono::DateTime<chrono::Utc>>,
+) -> Result<()> {
+    let now = Utc::now();
+
+    sqlx::query(
+        r#"
+        UPDATE recipes
+        SET content = ?, content_hash = ?, content_etag = ?,
+            content_last_modified = ?, feed_entry_updated = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(content)
+    .bind(content_hash)
+    .bind(content_etag)
+    .bind(content_last_modified)
+    .bind(feed_entry_updated)
+    .bind(now)
+    .bind(recipe_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Update just the feed_entry_updated timestamp (for skipped entries)
+pub async fn update_feed_entry_timestamp(
+    pool: &DbPool,
+    recipe_id: i64,
+    feed_entry_updated: Option<&chrono::DateTime<chrono::Utc>>,
+) -> Result<()> {
+    sqlx::query("UPDATE recipes SET feed_entry_updated = ? WHERE id = ?")
+        .bind(feed_entry_updated)
+        .bind(recipe_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,6 +497,9 @@ mod tests {
             image_url: None,
             published_at: Some(Utc::now()),
             content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
         };
 
         let recipe = create_recipe(&pool, &new_recipe).await.unwrap();

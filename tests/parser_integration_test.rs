@@ -99,6 +99,9 @@ Let it cool for ~{10%minutes} before serving.
         image_url: None,
         published_at: None,
         content_hash: None,
+        content_etag: None,
+        content_last_modified: None,
+        feed_entry_updated: None,
     };
 
     let recipe = federation::db::recipes::create_recipe(&pool, &new_recipe)

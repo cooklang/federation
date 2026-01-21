@@ -361,6 +361,9 @@ mod tests {
             indexed_at: None,
             created_at: Utc::now(),
             content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
         };
 
         // Index recipe first time

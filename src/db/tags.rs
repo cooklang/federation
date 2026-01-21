@@ -220,6 +220,9 @@ mod tests {
                 image_url: None,
                 published_at: Some(Utc::now()),
                 content_hash: None,
+                content_etag: None,
+                content_last_modified: None,
+                feed_entry_updated: None,
             },
         )
         .await

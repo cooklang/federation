@@ -77,8 +77,11 @@ impl Scheduler {
                     Ok(result) => {
                         success_count += 1;
                         debug!(
-                            "Successfully processed feed {}: {} new, {} updated",
-                            feed.url, result.new_recipes, result.updated_recipes
+                            "Successfully processed feed {}: {} new, {} updated, {} skipped",
+                            feed.url,
+                            result.new_recipes,
+                            result.updated_recipes,
+                            result.skipped_recipes
                         );
                     }
                     Err(e) => {

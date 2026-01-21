@@ -55,6 +55,12 @@ pub struct Recipe {
     pub indexed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub content_hash: Option<String>,
+    /// ETag from recipe content fetch for conditional HTTP requests
+    pub content_etag: Option<String>,
+    /// Last-Modified from recipe content fetch for conditional HTTP requests
+    pub content_last_modified: Option<DateTime<Utc>>,
+    /// The <updated> timestamp from the feed entry for comparison
+    pub feed_entry_updated: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +79,12 @@ pub struct NewRecipe {
     pub image_url: Option<String>,
     pub published_at: Option<DateTime<Utc>>,
     pub content_hash: Option<String>,
+    /// ETag from recipe content fetch for conditional HTTP requests
+    pub content_etag: Option<String>,
+    /// Last-Modified from recipe content fetch for conditional HTTP requests
+    pub content_last_modified: Option<DateTime<Utc>>,
+    /// The <updated> timestamp from the feed entry
+    pub feed_entry_updated: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

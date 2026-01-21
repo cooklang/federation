@@ -20,6 +20,19 @@ pub struct FetchResult {
     pub content_type: Option<String>,
 }
 
+/// Result of fetching recipe content with conditional request support
+#[derive(Debug)]
+pub enum RecipeContentResult {
+    /// Content was fetched (new or modified)
+    Fetched {
+        content: String,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    },
+    /// Content not modified (304 response)
+    NotModified,
+}
+
 impl Fetcher {
     pub fn new(user_agent: String, max_feed_size: usize) -> Result<Self> {
         let client = Client::builder()
@@ -186,6 +199,27 @@ impl Fetcher {
                 e.is_timeout() || e.is_connect() || e.is_request()
             }
             _ => false,
+        }
+    }
+
+    /// Fetch recipe content with conditional request support
+    /// Returns NotModified if the content hasn't changed (304 response)
+    pub async fn fetch_recipe_content(
+        &self,
+        url: &str,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) -> Result<RecipeContentResult> {
+        match self.fetch_with_conditions(url, etag, last_modified).await {
+            Ok(result) => Ok(RecipeContentResult::Fetched {
+                content: result.content,
+                etag: result.etag,
+                last_modified: result.last_modified,
+            }),
+            Err(Error::FeedParse(msg)) if msg == "304 Not Modified" => {
+                Ok(RecipeContentResult::NotModified)
+            }
+            Err(e) => Err(e),
         }
     }
 }
