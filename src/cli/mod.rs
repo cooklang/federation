@@ -69,4 +69,10 @@ pub enum Commands {
         /// Feed URL to validate
         url: String,
     },
+
+    /// Reindex a feed (delete all recipes and re-crawl)
+    Reindex {
+        /// Feed URL to reindex
+        url: String,
+    },
 }

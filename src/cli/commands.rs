@@ -355,6 +355,46 @@ pub async fn validate_feed(url: &str) -> Result<()> {
     }
 }
 
+/// Reindex a feed by URL - deletes all recipes and resets caching headers
+///
+/// Returns the number of recipes deleted.
+/// Does NOT trigger a crawl - that should be done separately.
+pub async fn reindex_feed(pool: &crate::db::DbPool, url: &str) -> Result<i64> {
+    use crate::db::feeds;
+
+    // Look up feed by URL
+    let feed = feeds::get_feed_by_url(pool, url)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Feed not found: {url}")))?;
+
+    // Count recipes before deletion
+    let deleted_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recipes WHERE feed_id = ?")
+        .bind(feed.id)
+        .fetch_one(pool)
+        .await?;
+
+    // Delete all recipes for this feed
+    sqlx::query("DELETE FROM recipes WHERE feed_id = ?")
+        .bind(feed.id)
+        .execute(pool)
+        .await?;
+
+    // Reset feed caching headers
+    sqlx::query(
+        r#"
+        UPDATE feeds
+        SET etag = NULL, last_modified = NULL, last_fetched_at = NULL, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(chrono::Utc::now())
+    .bind(feed.id)
+    .execute(pool)
+    .await?;
+
+    Ok(deleted_count)
+}
+
 // Response types (matching API models)
 
 #[derive(Debug, Deserialize)]

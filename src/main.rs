@@ -57,6 +57,9 @@ async fn main() -> Result<()> {
         Commands::Validate { url } => {
             validate_feed(url).await?;
         }
+        Commands::Reindex { url } => {
+            reindex_feed(settings, url).await?;
+        }
     }
 
     Ok(())
@@ -268,4 +271,28 @@ async fn publish_recipes(input: String, output: String) -> Result<()> {
 
 async fn validate_feed(url: String) -> Result<()> {
     federation::cli::commands::validate_feed(&url).await
+}
+
+async fn reindex_feed(settings: Settings, url: String) -> Result<()> {
+    info!("Reindexing feed: {}", url);
+
+    // Initialize database
+    let pool = db::init_pool(&settings.database.url).await?;
+    db::run_migrations(&pool).await?;
+
+    // Delete recipes and reset feed caching headers
+    let deleted_count = federation::cli::commands::reindex_feed(&pool, &url).await?;
+    println!("  Deleted {} recipes", deleted_count);
+
+    // Initialize crawler and re-crawl the feed
+    println!("  Crawling feed...");
+    let crawler = federation::crawler::Crawler::new(settings.crawler)?;
+    let result = crawler.crawl_feed(&pool, &url).await?;
+
+    println!(
+        "\x1b[32m\u{2713}\x1b[0m Reindex complete: {} new recipes indexed",
+        result.new_recipes
+    );
+
+    Ok(())
 }
