@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/cooklang/federation:0.2.3
+    image: ghcr.io/cooklang/federation:0.2.4
     build: .
     ports:
       - "${PORT:-3100}:${PORT:-3100}"
