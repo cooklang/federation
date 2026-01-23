@@ -377,7 +377,9 @@ impl Crawler {
                         .ok()
                         .and_then(|parsed| parsed.metadata.and_then(|m| m.image))
                 });
-                let image_url = metadata_image.or_else(|| entry.image_url.clone());
+                let image_url = metadata_image
+                    .or_else(|| entry.image_url.clone())
+                    .and_then(|img| resolve_image_url(&img, enclosure_url));
 
                 // Create new recipe
                 let new_recipe = NewRecipe {
@@ -489,6 +491,8 @@ pub struct CrawlResult {
     pub skipped_recipes: usize,
 }
 
+use crate::utils::resolve_image_url;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -506,5 +510,41 @@ mod tests {
 
         let crawler = Crawler::new(config);
         assert!(crawler.is_ok());
+    }
+
+    #[test]
+    fn test_resolve_image_url_absolute() {
+        let result = resolve_image_url(
+            "https://example.com/images/photo.jpg",
+            "https://example.com/recipes/cake.cook",
+        );
+        assert_eq!(result, Some("https://example.com/images/photo.jpg".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_image_url_relative_filename() {
+        let result = resolve_image_url(
+            "Lemon Drop.jpeg",
+            "https://example.com/recipes/Lemon Drop.cook",
+        );
+        assert_eq!(result, Some("https://example.com/recipes/Lemon%20Drop.jpeg".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_image_url_relative_path() {
+        let result = resolve_image_url(
+            "../images/photo.jpg",
+            "https://example.com/recipes/cake.cook",
+        );
+        assert_eq!(result, Some("https://example.com/images/photo.jpg".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_image_url_absolute_path() {
+        let result = resolve_image_url(
+            "/images/photo.jpg",
+            "https://example.com/recipes/cake.cook",
+        );
+        assert_eq!(result, Some("https://example.com/images/photo.jpg".to_string()));
     }
 }

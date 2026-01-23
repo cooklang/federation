@@ -1,4 +1,5 @@
 use crate::github::{client::GitHubClient, config::GitHubConfig};
+use crate::utils::resolve_image_url;
 use crate::{
     db::{
         self,
@@ -345,7 +346,10 @@ impl GitHubIndexer {
         );
 
         // Prioritize metadata image, fallback to sibling image file
-        let image_url = metadata_image.or(sibling_image_url);
+        // Resolve relative metadata image URLs against the raw content URL
+        let image_url = metadata_image
+            .and_then(|img| resolve_image_url(&img, &raw_url))
+            .or(sibling_image_url);
 
         let html_url = format!(
             "https://github.com/{}/{}/blob/{}/{}",
