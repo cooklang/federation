@@ -371,14 +371,16 @@ impl Crawler {
                 ProcessResult::Updated
             }
             None => {
-                // Determine image URL: prefer Cooklang metadata, fallback to feed entry image
+                // Determine image URL: prefer feed entry image, fallback to Cooklang metadata
                 let metadata_image = content.as_ref().and_then(|c| {
                     parse_cooklang_full(c)
                         .ok()
                         .and_then(|parsed| parsed.metadata.and_then(|m| m.image))
                 });
-                let image_url = metadata_image
-                    .or_else(|| entry.image_url.clone())
+                let image_url = entry
+                    .image_url
+                    .clone()
+                    .or(metadata_image)
                     .and_then(|img| resolve_image_url(&img, enclosure_url));
 
                 // Create new recipe

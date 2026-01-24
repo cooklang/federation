@@ -1,7 +1,9 @@
 use crate::error::{Error, Result};
 use chrono::{DateTime, Utc};
 use feed_rs::parser;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,11 +59,14 @@ pub fn parse_feed(content: &str) -> Result<ParsedFeed> {
 
     let updated = feed.updated;
 
+    // Extract cooklang:image URLs from raw XML (feed_rs doesn't parse custom namespaces)
+    let cooklang_images = extract_cooklang_images(content);
+
     // Parse entries
     let entries: Vec<ParsedEntry> = feed
         .entries
         .into_iter()
-        .filter_map(|entry| match parse_entry(entry) {
+        .filter_map(|entry| match parse_entry(entry, &cooklang_images) {
             Ok(parsed) => Some(parsed),
             Err(e) => {
                 warn!("Failed to parse entry: {}", e);
@@ -78,7 +83,10 @@ pub fn parse_feed(content: &str) -> Result<ParsedFeed> {
     })
 }
 
-fn parse_entry(entry: feed_rs::model::Entry) -> Result<ParsedEntry> {
+fn parse_entry(
+    entry: feed_rs::model::Entry,
+    cooklang_images: &HashMap<String, String>,
+) -> Result<ParsedEntry> {
     // Get entry ID
     let id = entry.id;
 
@@ -111,15 +119,20 @@ fn parse_entry(entry: feed_rs::model::Entry) -> Result<ParsedEntry> {
         })
         .map(|l| l.href.clone());
 
-    // Get image URL from media elements
-    let image_url = entry
-        .media
-        .first()
-        .and_then(|m| {
-            m.content
+    // Get image URL: prefer cooklang:image from feed, then media elements, then image enclosure
+    let image_url = cooklang_images
+        .get(&id)
+        .cloned()
+        .or_else(|| {
+            entry
+                .media
                 .first()
-                .and_then(|c| c.url.as_ref().map(|u| u.to_string()))
-                .or_else(|| m.thumbnails.first().map(|t| t.image.uri.to_string()))
+                .and_then(|m| {
+                    m.content
+                        .first()
+                        .and_then(|c| c.url.as_ref().map(|u| u.to_string()))
+                        .or_else(|| m.thumbnails.first().map(|t| t.image.uri.to_string()))
+                })
         })
         // Fallback: check for image enclosure
         .or_else(|| {
@@ -157,6 +170,48 @@ fn parse_entry(entry: feed_rs::model::Entry) -> Result<ParsedEntry> {
         tags,
         metadata,
     })
+}
+
+/// Extract cooklang:image URLs from raw feed XML, keyed by entry ID.
+/// feed_rs doesn't parse custom namespace extensions, so we extract them with regex.
+fn extract_cooklang_images(content: &str) -> HashMap<String, String> {
+    let mut images = HashMap::new();
+
+    // Match Atom entries: <entry>...</entry>
+    let entry_re = Regex::new(r"(?s)<entry[^>]*>(.*?)</entry>").unwrap();
+    let atom_id_re = Regex::new(r"<id>([^<]+)</id>").unwrap();
+
+    for cap in entry_re.captures_iter(content) {
+        let block = &cap[1];
+        if let (Some(id_cap), Some(img)) = (
+            atom_id_re.captures(block),
+            extract_cooklang_image_from_block(block),
+        ) {
+            images.insert(id_cap[1].trim().to_string(), img);
+        }
+    }
+
+    // Match RSS items: <item>...</item>
+    let item_re = Regex::new(r"(?s)<item[^>]*>(.*?)</item>").unwrap();
+    let guid_re = Regex::new(r"<guid[^>]*>([^<]+)</guid>").unwrap();
+
+    for cap in item_re.captures_iter(content) {
+        let block = &cap[1];
+        if let (Some(id_cap), Some(img)) = (
+            guid_re.captures(block),
+            extract_cooklang_image_from_block(block),
+        ) {
+            images.insert(id_cap[1].trim().to_string(), img);
+        }
+    }
+
+    images
+}
+
+fn extract_cooklang_image_from_block(block: &str) -> Option<String> {
+    let re = Regex::new(r"<cooklang:image>([^<]+)</cooklang:image>").unwrap();
+    re.captures(block)
+        .map(|cap| cap[1].trim().to_string())
 }
 
 #[cfg(test)]
@@ -230,5 +285,64 @@ mod tests {
         let invalid = "not a valid feed";
         let result = parse_feed(invalid);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_atom_feed_with_cooklang_image() {
+        let atom = r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cooklang="https://cooklang.org/feed/">
+  <title>Cocktails</title>
+  <entry>
+    <id>https://example.com/r/manhattan</id>
+    <title>The Manhattan Project</title>
+    <link rel="alternate" href="https://example.com/r/manhattan"/>
+    <link rel="enclosure" href="https://example.com/r/manhattan/cooklang" type="text/plain"/>
+    <cooklang:recipe>
+      <cooklang:image>https://images.example.com/manhattan.jpeg</cooklang:image>
+    </cooklang:recipe>
+  </entry>
+</feed>"#;
+
+        let result = parse_feed(atom);
+        assert!(result.is_ok());
+
+        let feed = result.unwrap();
+        let entry = &feed.entries[0];
+        assert_eq!(
+            entry.image_url,
+            Some("https://images.example.com/manhattan.jpeg".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_cooklang_images() {
+        let content = r#"
+        <entry>
+            <id>entry-1</id>
+            <cooklang:recipe>
+                <cooklang:image>https://cdn.example.com/photo1.jpg</cooklang:image>
+            </cooklang:recipe>
+        </entry>
+        <entry>
+            <id>entry-2</id>
+        </entry>
+        <entry>
+            <id>entry-3</id>
+            <cooklang:recipe>
+                <cooklang:image>https://cdn.example.com/photo3.jpg</cooklang:image>
+            </cooklang:recipe>
+        </entry>"#;
+
+        let images = extract_cooklang_images(content);
+        assert_eq!(images.len(), 2);
+        assert_eq!(
+            images.get("entry-1"),
+            Some(&"https://cdn.example.com/photo1.jpg".to_string())
+        );
+        assert_eq!(images.get("entry-2"), None);
+        assert_eq!(
+            images.get("entry-3"),
+            Some(&"https://cdn.example.com/photo3.jpg".to_string())
+        );
     }
 }
