@@ -327,10 +327,7 @@ impl GitHubIndexer {
             let summary = None; // Can be enhanced to extract from recipe notes
             let servings = None; // Can be extracted from metadata
             let total_time = None; // Can be extracted from timer sum
-            let metadata_image = parsed_data
-                .metadata
-                .as_ref()
-                .and_then(|m| m.image.clone());
+            let metadata_image = parsed_data.metadata.as_ref().and_then(|m| m.image.clone());
             (summary, servings, total_time, metadata_image)
         } else {
             (None, None, None, None)

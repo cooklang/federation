@@ -520,7 +520,10 @@ mod tests {
             "https://example.com/images/photo.jpg",
             "https://example.com/recipes/cake.cook",
         );
-        assert_eq!(result, Some("https://example.com/images/photo.jpg".to_string()));
+        assert_eq!(
+            result,
+            Some("https://example.com/images/photo.jpg".to_string())
+        );
     }
 
     #[test]
@@ -529,7 +532,10 @@ mod tests {
             "Lemon Drop.jpeg",
             "https://example.com/recipes/Lemon Drop.cook",
         );
-        assert_eq!(result, Some("https://example.com/recipes/Lemon%20Drop.jpeg".to_string()));
+        assert_eq!(
+            result,
+            Some("https://example.com/recipes/Lemon%20Drop.jpeg".to_string())
+        );
     }
 
     #[test]
@@ -538,15 +544,19 @@ mod tests {
             "../images/photo.jpg",
             "https://example.com/recipes/cake.cook",
         );
-        assert_eq!(result, Some("https://example.com/images/photo.jpg".to_string()));
+        assert_eq!(
+            result,
+            Some("https://example.com/images/photo.jpg".to_string())
+        );
     }
 
     #[test]
     fn test_resolve_image_url_absolute_path() {
-        let result = resolve_image_url(
-            "/images/photo.jpg",
-            "https://example.com/recipes/cake.cook",
+        let result =
+            resolve_image_url("/images/photo.jpg", "https://example.com/recipes/cake.cook");
+        assert_eq!(
+            result,
+            Some("https://example.com/images/photo.jpg".to_string())
         );
-        assert_eq!(result, Some("https://example.com/images/photo.jpg".to_string()));
     }
 }

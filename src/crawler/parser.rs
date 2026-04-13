@@ -124,15 +124,12 @@ fn parse_entry(
         .get(&id)
         .cloned()
         .or_else(|| {
-            entry
-                .media
-                .first()
-                .and_then(|m| {
-                    m.content
-                        .first()
-                        .and_then(|c| c.url.as_ref().map(|u| u.to_string()))
-                        .or_else(|| m.thumbnails.first().map(|t| t.image.uri.to_string()))
-                })
+            entry.media.first().and_then(|m| {
+                m.content
+                    .first()
+                    .and_then(|c| c.url.as_ref().map(|u| u.to_string()))
+                    .or_else(|| m.thumbnails.first().map(|t| t.image.uri.to_string()))
+            })
         })
         // Fallback: check for image enclosure
         .or_else(|| {
@@ -210,8 +207,7 @@ fn extract_cooklang_images(content: &str) -> HashMap<String, String> {
 
 fn extract_cooklang_image_from_block(block: &str) -> Option<String> {
     let re = Regex::new(r"<cooklang:image>([^<]+)</cooklang:image>").unwrap();
-    re.captures(block)
-        .map(|cap| cap[1].trim().to_string())
+    re.captures(block).map(|cap| cap[1].trim().to_string())
 }
 
 #[cfg(test)]
