@@ -945,6 +945,16 @@ feeds:
     added_by: "@hilli"
     added_at: "2026-01-15"
 
+  - url: "https://cook.tmlmt.com/feed.xml"
+    title: "Recipe Collection of tmlmt"
+    feed_type: web
+    enabled: true
+    tags:
+      - cookbook
+    notes: "Personal cookbook of recipes written in Cooklang and managed with @tmlmt/cooklang-shopper"
+    added_by: "@tmlmt"
+    added_at: "2026-04-13"
+
 # Validation configuration
 validation:
   max_feeds: 1000
