@@ -18,6 +18,7 @@ pub struct ParsedRecipeData {
 pub struct RecipeMetadata {
     pub tags: Vec<String>,
     pub title: Option<String>,
+    pub locale: Option<String>,
     pub description: Option<String>,
     pub servings: Option<String>,
     pub time: Option<String>,
@@ -176,6 +177,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                 | Some("author")
                 | Some("source")
                 | Some("image")
+                | Some("locale")
         ) {
             if let (Some(k), Some(v)) = (key.as_str(), value.as_str()) {
                 custom.push((k.to_string(), v.to_string()));
@@ -226,6 +228,10 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                 .get("title")
                 .and_then(|t| t.as_str())
                 .map(|t| t.to_string()),
+            locale: meta.locale().map(|(lang, region)| match region {
+                Some(region) => format!("{}-{}", lang.to_lowercase(), region.to_uppercase()),
+                None => lang.to_lowercase(),
+            }),
             description: meta.description().map(|d| d.to_string()),
             servings: meta.servings().map(|s| format!("{s}")),
             time: time_str,
@@ -452,5 +458,48 @@ Heat in #oven{} for ~{20%minutes}.
 
         let one_and_half = cooklang::Value::Number(cooklang::quantity::Number::Regular(1.5));
         assert_eq!(format_quantity(&one_and_half), Some("1 ½".to_string()));
+    }
+
+    #[test]
+    fn test_declared_locale_with_region() {
+        let content = r#"---
+locale: en_US
+---
+
+Mix @flour{2%cups} with @water{1%cup}.
+"#;
+
+        let parsed = parse_recipe(content).unwrap();
+        let metadata = parsed.metadata.expect("metadata should be present");
+
+        assert_eq!(metadata.locale, Some("en-US".to_string()));
+        // The locale must not also leak into `custom`.
+        assert!(!metadata.custom.iter().any(|(k, _)| k == "locale"));
+    }
+
+    #[test]
+    fn test_declared_locale_without_region() {
+        let content = r#"---
+locale: de
+---
+
+@Mehl{200%g} mit @Wasser{100%ml} verrühren.
+"#;
+
+        let parsed = parse_recipe(content).unwrap();
+        let metadata = parsed.metadata.expect("metadata should be present");
+
+        assert_eq!(metadata.locale, Some("de".to_string()));
+    }
+
+    #[test]
+    fn test_no_declared_locale() {
+        let content = "Mix @flour{2%cups} with @water{1%cup}.\n";
+
+        let parsed = parse_recipe(content).unwrap();
+
+        // No metadata at all, or metadata with no locale — both mean "not declared".
+        let locale = parsed.metadata.and_then(|m| m.locale);
+        assert_eq!(locale, None);
     }
 }
