@@ -60,6 +60,9 @@ async fn main() -> Result<()> {
         Commands::Reindex { url } => {
             reindex_feed(settings, url).await?;
         }
+        Commands::BackfillLocales { force } => {
+            backfill_locales(settings, force).await?;
+        }
     }
 
     Ok(())
@@ -292,6 +295,25 @@ async fn reindex_feed(settings: Settings, url: String) -> Result<()> {
     println!(
         "\x1b[32m\u{2713}\x1b[0m Reindex complete: {} new recipes indexed",
         result.new_recipes
+    );
+
+    Ok(())
+}
+
+async fn backfill_locales(settings: Settings, force: bool) -> Result<()> {
+    info!("Backfilling recipe locales (force: {})", force);
+
+    let pool = db::init_pool(&settings.database.url).await?;
+    db::run_migrations(&pool).await?;
+
+    let index_path = std::path::PathBuf::from(&settings.search.index_path);
+    let search_index = SearchIndex::new(&index_path)?;
+
+    let stats = federation::cli::commands::backfill_locales(&pool, &search_index, force).await?;
+
+    println!(
+        "\x1b[32m\u{2713}\x1b[0m Backfill complete: {} scanned, {} tagged, {} left without a locale",
+        stats.scanned, stats.updated, stats.skipped
     );
 
     Ok(())

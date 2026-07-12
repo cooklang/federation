@@ -395,6 +395,117 @@ pub async fn reindex_feed(pool: &crate::db::DbPool, url: &str) -> Result<i64> {
     Ok(deleted_count)
 }
 
+/// What a backfill pass did.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BackfillStats {
+    /// Recipes considered (had content, and matched the locale predicate).
+    pub scanned: usize,
+    /// Recipes whose locale we resolved and stored.
+    pub updated: usize,
+    /// Recipes we could not resolve a locale for.
+    pub skipped: usize,
+}
+
+/// Detect and store locales for recipes that don't have one.
+///
+/// Recipe content is already in the database, so this makes no network calls.
+/// Each touched recipe is re-indexed in Tantivy so the locale filter works over
+/// existing data. With `force`, every recipe with content is recomputed.
+pub async fn backfill_locales(
+    pool: &crate::db::DbPool,
+    search_index: &crate::indexer::search::SearchIndex,
+    force: bool,
+) -> Result<BackfillStats> {
+    use crate::db::models::Recipe;
+
+    /// Rows per batch. Keeps memory flat on large databases.
+    const BATCH_SIZE: i64 = 500;
+
+    let mut stats = BackfillStats::default();
+    let mut writer = search_index.writer()?;
+    let mut last_id: i64 = 0;
+
+    loop {
+        // Keyset pagination on id: rows we update drop out of the unfiltered
+        // predicate, so an OFFSET would silently skip recipes.
+        let sql = if force {
+            "SELECT * FROM recipes WHERE content IS NOT NULL AND id > ? ORDER BY id LIMIT ?"
+        } else {
+            "SELECT * FROM recipes \
+             WHERE content IS NOT NULL AND locale IS NULL AND id > ? ORDER BY id LIMIT ?"
+        };
+
+        let batch: Vec<Recipe> = sqlx::query_as::<_, Recipe>(sql)
+            .bind(last_id)
+            .bind(BATCH_SIZE)
+            .fetch_all(pool)
+            .await?;
+
+        if batch.is_empty() {
+            break;
+        }
+
+        for mut recipe in batch {
+            last_id = recipe.id;
+            stats.scanned += 1;
+
+            let Some(content) = recipe.content.clone() else {
+                stats.skipped += 1;
+                continue;
+            };
+
+            let locale = match crate::indexer::parse_cooklang_full(&content) {
+                Ok(parsed) => crate::indexer::resolve_locale(&parsed),
+                Err(e) => {
+                    warn!("Recipe {}: failed to parse content: {}", recipe.id, e);
+                    None
+                }
+            };
+
+            let Some(locale) = locale else {
+                stats.skipped += 1;
+                continue;
+            };
+
+            crate::db::recipes::update_recipe_locale(
+                pool,
+                recipe.id,
+                Some(&locale.code),
+                Some(locale.source.as_str()),
+            )
+            .await?;
+
+            // Re-index with the locale so the search filter sees it.
+            recipe.locale = Some(locale.code.clone());
+            recipe.locale_source = Some(locale.source.as_str().to_string());
+
+            let file_path = crate::db::github::get_github_recipe_by_recipe_id(pool, recipe.id)
+                .await?
+                .map(|gh| gh.file_path);
+            let tags = crate::db::tags::get_tags_for_recipe(pool, recipe.id).await?;
+            let ingredients = crate::db::ingredients::get_ingredients_for_recipe(pool, recipe.id)
+                .await?
+                .iter()
+                .map(|i| i.name.clone())
+                .collect::<Vec<_>>();
+
+            search_index.index_recipe(
+                &mut writer,
+                &recipe,
+                file_path.as_deref(),
+                &tags,
+                &ingredients,
+            )?;
+
+            stats.updated += 1;
+        }
+    }
+
+    search_index.commit(&mut writer)?;
+
+    Ok(stats)
+}
+
 // Response types (matching API models)
 
 #[derive(Debug, Deserialize)]
