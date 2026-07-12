@@ -26,11 +26,22 @@ where
 #[template(path = "search.html")]
 struct SearchTemplate {
     query: String,
+    locale: String,
+    locales: Vec<LocaleOption>,
     results: Vec<RecipeCardData>,
     total: usize,
     page: usize,
     total_pages: usize,
     recent_recipes: Vec<RecipeCardData>,
+}
+
+/// One entry in the language filter dropdown.
+#[derive(Clone)]
+#[allow(dead_code)] // Fields are used by Askama templates
+struct LocaleOption {
+    code: String,
+    name: String,
+    count: i64,
 }
 
 #[derive(Clone)]
@@ -45,12 +56,15 @@ struct RecipeCardData {
     difficulty: String,
     image_url: String,
     source_url: String,
+    locale_name: String,
 }
 
 #[derive(Deserialize)]
 pub struct SearchParams {
     #[serde(default, deserialize_with = "deserialize_optional_string")]
     q: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_string")]
+    locale: Option<String>,
     #[serde(default = "default_page")]
     page: usize,
 }
@@ -65,9 +79,34 @@ pub async fn index(
     Query(params): Query<SearchParams>,
 ) -> Result<impl IntoResponse> {
     let query = params.q.clone().unwrap_or_default();
+    let locale = params.locale.clone().unwrap_or_default();
 
-    // If query is empty, show no results
-    let (results, total, total_pages) = if query.is_empty() {
+    // Language filter options: distinct locales in the database, most common first.
+    // Regional codes ("en-US") are folded into their base language ("en") so the
+    // dropdown lists one entry per language.
+    let locales = {
+        let mut counts: Vec<(String, i64)> = Vec::new();
+        for (code, count) in db::recipes::list_locales(&state.pool).await? {
+            let base = code.split('-').next().unwrap_or(&code).to_string();
+            match counts.iter_mut().find(|(c, _)| *c == base) {
+                Some((_, existing)) => *existing += count,
+                None => counts.push((base, count)),
+            }
+        }
+        counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+        counts
+            .into_iter()
+            .map(|(code, count)| LocaleOption {
+                name: crate::indexer::locale::display_name(&code).unwrap_or_else(|| code.clone()),
+                code,
+                count,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // If query and locale filter are both empty, show no results
+    let (results, total, total_pages) = if query.is_empty() && locale.is_empty() {
         (vec![], 0, 0)
     } else {
         // Build search query
@@ -75,7 +114,7 @@ pub async fn index(
             q: query.clone(),
             page: params.page,
             limit: state.settings.pagination.web_default_limit,
-            locale: None,
+            locale: params.locale.clone(),
         };
 
         // Execute search
@@ -112,6 +151,11 @@ pub async fn index(
                     difficulty: r.difficulty.unwrap_or_default(),
                     image_url: r.image_url.unwrap_or_default(),
                     source_url: r.source_url.unwrap_or_default(),
+                    locale_name: r
+                        .locale
+                        .as_deref()
+                        .and_then(crate::indexer::locale::display_name)
+                        .unwrap_or_default(),
                 });
             }
         }
@@ -120,7 +164,7 @@ pub async fn index(
     };
 
     // Fetch recently indexed recipes for the homepage
-    let recent_recipes = if query.is_empty() {
+    let recent_recipes = if query.is_empty() && locale.is_empty() {
         let recipes = db::recipes::list_recently_indexed(&state.pool, 6).await?;
         let recipe_ids: Vec<i64> = recipes.iter().map(|r| r.id).collect();
         let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
@@ -142,6 +186,11 @@ pub async fn index(
                     difficulty: r.difficulty.unwrap_or_default(),
                     image_url: r.image_url.unwrap_or_default(),
                     source_url: r.source_url.unwrap_or_default(),
+                    locale_name: r
+                        .locale
+                        .as_deref()
+                        .and_then(crate::indexer::locale::display_name)
+                        .unwrap_or_default(),
                 }
             })
             .collect()
@@ -151,6 +200,8 @@ pub async fn index(
 
     let template = SearchTemplate {
         query,
+        locale,
+        locales,
         results,
         total,
         page: params.page,
@@ -188,6 +239,9 @@ pub struct RecipeData {
     pub source_url: String,
     pub feed: FeedData,
     pub metadata: Option<crate::indexer::cooklang_parser::RecipeMetadata>,
+    pub locale: String,
+    pub locale_name: String,
+    pub locale_detected: bool,
 }
 
 #[derive(Clone)]
@@ -275,6 +329,13 @@ pub async fn recipe_detail(
             author: feed.author.unwrap_or_default(),
         },
         metadata,
+        locale: recipe.locale.clone().unwrap_or_default(),
+        locale_name: recipe
+            .locale
+            .as_deref()
+            .and_then(crate::indexer::locale::display_name)
+            .unwrap_or_default(),
+        locale_detected: recipe.locale_source.as_deref() == Some("detected"),
     };
 
     // Generate Schema.org JSON-LD
@@ -448,6 +509,11 @@ pub async fn feed_recipes_page(
             difficulty: recipe.difficulty.unwrap_or_default(),
             image_url: recipe.image_url.unwrap_or_default(),
             source_url: recipe.source_url.unwrap_or_default(),
+            locale_name: recipe
+                .locale
+                .as_deref()
+                .and_then(crate::indexer::locale::display_name)
+                .unwrap_or_default(),
         });
     }
 
@@ -531,6 +597,11 @@ pub async fn browse_page(
                 difficulty: recipe.difficulty.unwrap_or_default(),
                 image_url: recipe.image_url.unwrap_or_default(),
                 source_url: recipe.source_url.unwrap_or_default(),
+                locale_name: recipe
+                    .locale
+                    .as_deref()
+                    .and_then(crate::indexer::locale::display_name)
+                    .unwrap_or_default(),
             }
         })
         .collect();
