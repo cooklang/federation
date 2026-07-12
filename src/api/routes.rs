@@ -145,7 +145,7 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
             SetResponseHeaderLayer::if_not_present(
                 header::CONTENT_SECURITY_POLICY,
                 HeaderValue::from_static(
-                    "default-src 'self'; script-src 'self' 'unsafe-inline' https://plausible.io; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://plausible.io; object-src 'none'; base-uri 'self'"
+                    "default-src 'self'; script-src 'self' 'unsafe-inline' https://plau.cook.md; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://plau.cook.md; object-src 'none'; base-uri 'self'"
                 ),
             ),
         )
