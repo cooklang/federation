@@ -53,9 +53,10 @@ impl Scheduler {
         let mut total_feeds = 0;
 
         loop {
-            // Fetch feeds in batches
-            let feeds =
-                db::feeds::list_feeds(&self.pool, Some("active"), BATCH_SIZE, offset).await?;
+            // Fetch feeds in batches. This includes feeds currently in `error`:
+            // failures are usually transient, and skipping them would make a
+            // single bad response permanent.
+            let feeds = db::feeds::list_crawlable_feeds(&self.pool, BATCH_SIZE, offset).await?;
 
             if feeds.is_empty() {
                 break;
