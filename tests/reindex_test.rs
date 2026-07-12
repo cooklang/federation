@@ -52,6 +52,8 @@ async fn test_reindex_deletes_recipes_and_resets_feed() {
             content_etag: None,
             content_last_modified: None,
             feed_entry_updated: None,
+            locale: None,
+            locale_source: None,
         };
 
         recipes::get_or_create_recipe(&pool, &recipe)

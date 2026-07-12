@@ -102,6 +102,8 @@ Let it cool for ~{10%minutes} before serving.
         content_etag: None,
         content_last_modified: None,
         feed_entry_updated: None,
+        locale: None,
+        locale_source: None,
     };
 
     let recipe = federation::db::recipes::create_recipe(&pool, &new_recipe)

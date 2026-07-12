@@ -364,6 +364,8 @@ impl Crawler {
                         content_etag.as_deref(),
                         content_last_modified_dt.as_ref(),
                         entry.updated.as_ref(),
+                        None,
+                        None,
                     )
                     .await?;
                 }
@@ -409,6 +411,8 @@ impl Crawler {
                     content_etag,
                     content_last_modified: content_last_modified_dt,
                     feed_entry_updated: entry.updated,
+                    locale: None,
+                    locale_source: None,
                 };
 
                 let (recipe, _) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;

@@ -364,6 +364,8 @@ mod tests {
             content_etag: None,
             content_last_modified: None,
             feed_entry_updated: None,
+            locale: None,
+            locale_source: None,
         };
 
         // Index recipe first time
