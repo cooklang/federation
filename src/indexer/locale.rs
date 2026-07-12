@@ -47,16 +47,24 @@ pub fn resolve_locale(parsed: &ParsedRecipeData) -> Option<RecipeLocale> {
         });
     }
 
-    detect(&detection_text(parsed)).map(|code| RecipeLocale {
+    detect_language_code(parsed).map(|code| RecipeLocale {
         code,
         source: LocaleSource::Detected,
     })
 }
 
-/// The plain text a recipe is detected from: title, description, section names,
-/// step text, notes, and ingredient names. Quantities, units and cookware are
-/// excluded — they are noise, not language signal.
-pub(crate) fn detection_text(parsed: &ParsedRecipeData) -> String {
+/// Detect the recipe's language code.
+///
+/// Narrative prose is the most trustworthy signal. Ingredient names are often
+/// culturally-marked proper nouns ("Prosciutto", "Focaccia") that can outvote a short
+/// English method, so they only get a say when the prose alone can't decide.
+fn detect_language_code(parsed: &ParsedRecipeData) -> Option<String> {
+    detect_reliable(&narrative_text(parsed)).or_else(|| detect_reliable(&detection_text(parsed)))
+}
+
+/// The recipe's prose: title, description, section names, step text and notes.
+/// Quantities, units, cookware and ingredient names are excluded.
+fn narrative_text(parsed: &ParsedRecipeData) -> String {
     let mut parts: Vec<&str> = Vec::new();
 
     if let Some(meta) = &parsed.metadata {
@@ -84,15 +92,24 @@ pub(crate) fn detection_text(parsed: &ParsedRecipeData) -> String {
         }
     }
 
+    parts.join(" ")
+}
+
+/// The recipe's prose plus its ingredient names — the fallback signal for recipes
+/// that are ingredient-heavy but say little. Quantities, units and cookware stay
+/// excluded: they are noise, not language signal.
+pub(crate) fn detection_text(parsed: &ParsedRecipeData) -> String {
+    let mut parts = vec![narrative_text(parsed)];
+
     for ingredient in &parsed.ingredients {
-        parts.push(&ingredient.name);
+        parts.push(ingredient.name.clone());
     }
 
     parts.join(" ")
 }
 
 /// Detect a language code from plain text, or `None` if we can't trust the result.
-fn detect(text: &str) -> Option<String> {
+fn detect_reliable(text: &str) -> Option<String> {
     if text.chars().count() < MIN_DETECTION_CHARS {
         return None;
     }
@@ -107,7 +124,17 @@ fn detect(text: &str) -> Option<String> {
 
 /// Map whatlang's ISO 639-3 code to a two-letter code where one exists.
 /// Languages without a 639-1 code (e.g. Cebuano) keep their 639-3 code.
+///
+/// whatlang reports individual-language codes for two macrolanguages, and ISO 639-1
+/// only has codes for their macrolanguage parents. isolang can't bridge this, so map
+/// them explicitly.
 fn to_bcp47(code_639_3: &str) -> String {
+    match code_639_3 {
+        "cmn" => return "zh".to_string(),
+        "pes" => return "fa".to_string(),
+        _ => {}
+    }
+
     isolang::Language::from_639_3(code_639_3)
         .and_then(|lang| lang.to_639_1())
         .map(str::to_string)
@@ -115,9 +142,13 @@ fn to_bcp47(code_639_3: &str) -> String {
 }
 
 /// English display name for a stored code: `"de"` → `"German"`, `"en-US"` → `"English"`.
+/// Falls back to 639-3 so the codes `to_bcp47` leaves as 639-3 (e.g. `"ceb"`) can be named.
 pub fn display_name(code: &str) -> Option<String> {
     let language = code.split('-').next()?;
-    isolang::Language::from_639_1(language).map(|lang| lang.to_name().to_string())
+
+    isolang::Language::from_639_1(language)
+        .or_else(|| isolang::Language::from_639_3(language))
+        .map(|lang| lang.to_name().to_string())
 }
 
 #[cfg(test)]
@@ -131,6 +162,19 @@ im #Ofen{} goldbraun backen.";
 
     const ENGLISH: &str = "Mix the @flour{200%g} and the @water{100%ml} in a bowl until \
 a smooth dough forms. Let the dough rest, then bake it in the #oven{} until golden brown.";
+
+    /// Mandarin. whatlang reports this as `Cmn` (ISO 639-3), which has no 639-1 code
+    /// of its own — only its macrolanguage parent `zho` does.
+    const CHINESE: &str = "将@面粉{200%克}和@水{100%毫升}放入碗中搅拌均匀，揉成光滑的面团。\
+让面团静置醒发，然后放入#烤箱{}中烤至金黄色。";
+
+    /// An English method with culturally-marked Italian ingredient names. The prose is
+    /// unambiguously English, but the ingredient names alone read as Italian.
+    const ENGLISH_WITH_ITALIAN_INGREDIENTS: &str = "Chop and mix everything well, then bake \
+it in the #oven{} until browned. Serve the dish hot.
+
+Add @Prosciutto{}, @Parmesan{}, @Chorizo{}, @Bruschetta{}, @Focaccia{}, @Crostini{}, \
+@Panzanella{}, @Mozzarella{}, @Gorgonzola{}, @Mascarpone{}.";
 
     #[test]
     fn test_detects_german() {
@@ -230,5 +274,33 @@ a smooth dough forms. Let the dough rest, then bake it in the #oven{} until gold
         assert_eq!(display_name("de").as_deref(), Some("German"));
         assert_eq!(display_name("en-US").as_deref(), Some("English"));
         assert_eq!(display_name("zzz"), None);
+    }
+
+    #[test]
+    fn test_macrolanguage_is_mapped_to_its_639_1_code() {
+        // whatlang detects Mandarin as `cmn`, an individual language with no 639-1 code.
+        // We must store the macrolanguage code `zh`, not the non-standard `cmn`.
+        let parsed = parse_recipe(CHINESE).unwrap();
+        let locale = resolve_locale(&parsed).expect("should detect a locale");
+
+        assert_eq!(locale.code, "zh");
+        assert_eq!(locale.source, LocaleSource::Detected);
+    }
+
+    #[test]
+    fn test_display_name_for_language_without_a_639_1_code() {
+        // `to_bcp47` keeps the 639-3 code for languages that have no 639-1 code, so
+        // `display_name` must be able to name those stored values too.
+        assert_eq!(display_name("ceb").as_deref(), Some("Cebuano"));
+    }
+
+    #[test]
+    fn test_ingredient_names_do_not_outvote_the_narrative() {
+        // The method is plainly English; only the ingredient names look Italian. The
+        // narrative must win, otherwise an English recipe is filed as Italian.
+        let parsed = parse_recipe(ENGLISH_WITH_ITALIAN_INGREDIENTS).unwrap();
+        let locale = resolve_locale(&parsed).expect("should detect a locale");
+
+        assert_eq!(locale.code, "en");
     }
 }
