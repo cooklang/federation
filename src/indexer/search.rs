@@ -52,8 +52,22 @@ impl SearchIndex {
 
         // Open or create index
         let index = if path.join("meta.json").exists() {
-            Index::open_in_dir(path)
-                .map_err(|e| Error::Search(format!("Failed to open index: {e}")))?
+            let index = Index::open_in_dir(path)
+                .map_err(|e| Error::Search(format!("Failed to open index: {e}")))?;
+
+            // Tantivy pins field ids to the schema stored on disk. If our schema has
+            // changed since the index was written, every field id we hold is wrong and
+            // writing a document corrupts or panics. Refuse to open it.
+            if index.schema() != schema.schema {
+                return Err(Error::Search(format!(
+                    "Search index at {} was built with a different schema and cannot be used. \
+                     Delete it and rebuild: rm -rf {} && federation backfill-locales",
+                    path.display(),
+                    path.display(),
+                )));
+            }
+
+            index
         } else {
             Index::create_in_dir(path, schema.schema.clone())
                 .map_err(|e| Error::Search(format!("Failed to create index: {e}")))?
@@ -335,6 +349,33 @@ mod tests {
         let dir = tempdir().unwrap();
         let index = SearchIndex::new(dir.path());
         assert!(index.is_ok());
+    }
+
+    #[test]
+    fn test_opening_an_index_with_a_stale_schema_is_refused() {
+        use tantivy::schema::{Schema, TEXT};
+
+        // An index written by an older build, whose schema no longer matches ours.
+        // Tantivy pins field ids to the on-disk schema, so using our field ids against
+        // it would panic or corrupt the index rather than fail cleanly.
+        let dir = tempdir().unwrap();
+        let mut builder = Schema::builder();
+        builder.add_text_field("title", TEXT);
+        Index::create_in_dir(dir.path(), builder.build()).unwrap();
+
+        let Err(err) = SearchIndex::new(dir.path()) else {
+            panic!("an index with a mismatched schema must not open");
+        };
+        let message = err.to_string();
+
+        assert!(
+            message.contains("different schema"),
+            "error should name the cause: {message}"
+        );
+        assert!(
+            message.contains("rm -rf"),
+            "error should tell the operator how to rebuild: {message}"
+        );
     }
 
     #[test]
