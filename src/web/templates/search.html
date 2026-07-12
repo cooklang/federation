@@ -121,7 +121,7 @@
     {% else %}
     <div class="text-center py-12">
         <div class="text-6xl mb-4">🔍</div>
-        {% if query.is_empty() %}
+        {% if query.is_empty() && locale.is_empty() %}
         <p class="text-gray-600 text-lg">Enter a search query above to find recipes</p>
         {% else %}
         <p class="text-gray-600 text-lg">No recipes found. Try a different search!</p>
@@ -184,7 +184,7 @@
 
 <script>
     // Scroll to search container when results are displayed
-    {% if !results.is_empty() || (!query.is_empty() && results.is_empty()) %}
+    {% if !results.is_empty() || ((!query.is_empty() || !locale.is_empty()) && results.is_empty()) %}
     window.addEventListener('DOMContentLoaded', function() {
         const searchContainer = document.getElementById('search-container');
         if (searchContainer) {
