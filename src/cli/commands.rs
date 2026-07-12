@@ -395,6 +395,144 @@ pub async fn reindex_feed(pool: &crate::db::DbPool, url: &str) -> Result<i64> {
     Ok(deleted_count)
 }
 
+/// What a backfill pass did.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BackfillStats {
+    /// Recipes considered (had content, and matched the locale predicate).
+    pub scanned: usize,
+    /// Recipes whose locale we resolved and stored.
+    pub updated: usize,
+    /// Recipes we could not resolve a locale for.
+    pub skipped: usize,
+}
+
+/// Detect and store locales for recipes that don't have one.
+///
+/// Recipe content is already in the database, so this makes no network calls.
+/// Every recipe with content is re-indexed in Tantivy, whether or not a locale
+/// could be resolved for it — a recipe must never fall out of the search index
+/// just because we can't tell what language it's in. With `force`, every
+/// recipe with content is recomputed.
+///
+/// Per batch, the search index is committed *before* the DB locale rows are
+/// written. If the process dies in between, those rows are left with
+/// `locale IS NULL`, so a plain (non-`--force`) rerun picks them up again and
+/// re-indexes them — `index_recipe` deletes-then-adds by recipe id, so
+/// re-indexing is idempotent. The failure mode is "redo some work", not "lose
+/// data".
+pub async fn backfill_locales(
+    pool: &crate::db::DbPool,
+    search_index: &crate::indexer::search::SearchIndex,
+    force: bool,
+) -> Result<BackfillStats> {
+    use crate::db::models::Recipe;
+    use crate::indexer::locale::RecipeLocale;
+
+    /// Rows per batch. Keeps memory flat on large databases.
+    const BATCH_SIZE: i64 = 500;
+
+    let mut stats = BackfillStats::default();
+    let mut last_id: i64 = 0;
+
+    loop {
+        // Keyset pagination on id: rows we update drop out of the unfiltered
+        // predicate, so an OFFSET would silently skip recipes.
+        let sql = if force {
+            "SELECT * FROM recipes WHERE content IS NOT NULL AND id > ? ORDER BY id LIMIT ?"
+        } else {
+            "SELECT * FROM recipes \
+             WHERE content IS NOT NULL AND locale IS NULL AND id > ? ORDER BY id LIMIT ?"
+        };
+
+        let batch: Vec<Recipe> = sqlx::query_as::<_, Recipe>(sql)
+            .bind(last_id)
+            .bind(BATCH_SIZE)
+            .fetch_all(pool)
+            .await?;
+
+        if batch.is_empty() {
+            break;
+        }
+
+        let mut writer = search_index.writer()?;
+        // Locale resolved per recipe in this batch, to be written to the DB only
+        // after the batch's index writes are durably committed.
+        let mut resolved: Vec<(i64, Option<RecipeLocale>)> = Vec::new();
+
+        for mut recipe in batch {
+            last_id = recipe.id;
+            stats.scanned += 1;
+
+            let Some(content) = recipe.content.clone() else {
+                stats.skipped += 1;
+                continue;
+            };
+
+            let locale = match crate::indexer::parse_cooklang_full(&content) {
+                Ok(parsed) => crate::indexer::resolve_locale(&parsed),
+                Err(e) => {
+                    warn!("Recipe {}: failed to parse content: {}", recipe.id, e);
+                    None
+                }
+            };
+
+            if locale.is_none() {
+                stats.skipped += 1;
+            }
+
+            // Apply the resolved locale (if any) to the in-memory recipe so the
+            // index reflects it, then index unconditionally: a recipe with
+            // content is always searchable, resolved locale or not.
+            if let Some(locale) = &locale {
+                recipe.locale = Some(locale.code.clone());
+                recipe.locale_source = Some(locale.source.as_str().to_string());
+            }
+
+            let file_path = crate::db::github::get_github_recipe_by_recipe_id(pool, recipe.id)
+                .await?
+                .map(|gh| gh.file_path);
+            let tags = crate::db::tags::get_tags_for_recipe(pool, recipe.id).await?;
+            let ingredients = crate::db::ingredients::get_ingredients_for_recipe(pool, recipe.id)
+                .await?
+                .iter()
+                .map(|i| i.name.clone())
+                .collect::<Vec<_>>();
+
+            search_index.index_recipe(
+                &mut writer,
+                &recipe,
+                file_path.as_deref(),
+                &tags,
+                &ingredients,
+            )?;
+
+            resolved.push((recipe.id, locale));
+        }
+
+        // Commit the index for this batch before touching the DB (Finding 2):
+        // see the doc comment above for why the ordering matters.
+        search_index.commit(&mut writer)?;
+
+        for (recipe_id, locale) in resolved {
+            let Some(locale) = locale else {
+                continue;
+            };
+
+            crate::db::recipes::update_recipe_locale(
+                pool,
+                recipe_id,
+                Some(&locale.code),
+                Some(locale.source.as_str()),
+            )
+            .await?;
+
+            stats.updated += 1;
+        }
+    }
+
+    Ok(stats)
+}
+
 // Response types (matching API models)
 
 #[derive(Debug, Deserialize)]

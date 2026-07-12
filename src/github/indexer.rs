@@ -333,6 +333,16 @@ impl GitHubIndexer {
             (None, None, None, None)
         };
 
+        // Locale: declared `locale:` metadata wins, otherwise detected from text.
+        let locale = parsed
+            .as_ref()
+            .ok()
+            .and_then(crate::indexer::resolve_locale);
+        let (locale_code, locale_source) = match &locale {
+            Some(l) => (Some(l.code.clone()), Some(l.source.as_str().to_string())),
+            None => (None, None),
+        };
+
         // Look for image with the same name (sibling file) as fallback
         let sibling_image_url = Self::find_recipe_image(
             file_path,
@@ -364,6 +374,14 @@ impl GitHubIndexer {
             // For now, we'll keep the existing recipe and just update the github_recipe SHA
             db::github::update_github_recipe_sha(&self.pool, existing.id, file_sha).await?;
 
+            db::recipes::update_recipe_locale(
+                &self.pool,
+                existing.recipe_id,
+                locale_code.as_deref(),
+                locale_source.as_deref(),
+            )
+            .await?;
+
             recipe.id
         } else {
             // Create new recipe
@@ -388,6 +406,8 @@ impl GitHubIndexer {
                 content_etag: None,
                 content_last_modified: None,
                 feed_entry_updated: None,
+                locale: locale_code.clone(),
+                locale_source: locale_source.clone(),
             };
 
             let recipe = db::recipes::create_recipe(&self.pool, &new_recipe).await?;

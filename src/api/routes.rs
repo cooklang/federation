@@ -173,10 +173,15 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
+    use tempfile::TempDir;
     use tower::ServiceExt;
 
-    // Helper to create test app state
-    async fn create_test_state() -> AppState {
+    // Helper to create test app state.
+    //
+    // Returns the search index's `TempDir` guard alongside the state: the caller
+    // must keep it alive for the whole test, because dropping it deletes the
+    // index directory out from under Tantivy.
+    async fn create_test_state() -> (AppState, TempDir) {
         use std::sync::Arc;
 
         // Create in-memory database
@@ -223,17 +228,21 @@ mod tests {
             },
         };
 
-        AppState {
+        let state = AppState {
             pool,
             search_index: Arc::new(search_index),
             github_indexer: None,
             settings,
-        }
+        };
+
+        (state, temp_dir)
     }
 
     #[tokio::test]
     async fn test_health_routes_exist() {
-        let state = create_test_state().await;
+        // The TempDir guard must stay alive for the whole test - dropping it deletes
+        // the search index directory out from under Tantivy.
+        let (state, _index_dir) = create_test_state().await;
         let app = create_router(state.clone(), &state.settings);
 
         // Test that API routes exist
@@ -248,5 +257,118 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    async fn response_json(response: axum::response::Response) -> serde_json::Value {
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_search_locale_filter_and_recipe_detail_expose_locale() {
+        use crate::db::models::{NewFeed, NewRecipe};
+        use crate::db::{feeds, recipes};
+
+        // The TempDir guard must stay alive for the whole test - dropping it deletes
+        // the search index directory out from under Tantivy.
+        let (state, _index_dir) = create_test_state().await;
+
+        // Seed a feed and two recipes in different locales.
+        let feed = feeds::create_feed(
+            &state.pool,
+            &NewFeed {
+                url: "https://example.com/feed.xml".to_string(),
+                title: Some("Test Feed".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let new_recipe = |external_id: &str, title: &str, locale: &str| NewRecipe {
+            feed_id: feed.id,
+            external_id: external_id.to_string(),
+            title: title.to_string(),
+            source_url: None,
+            enclosure_url: format!("https://example.com/{external_id}.cook"),
+            content: None,
+            summary: None,
+            servings: None,
+            total_time_minutes: None,
+            active_time_minutes: None,
+            difficulty: None,
+            image_url: None,
+            published_at: None,
+            content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
+            locale: Some(locale.to_string()),
+            locale_source: Some("declared".to_string()),
+        };
+
+        let en_recipe =
+            recipes::create_recipe(&state.pool, &new_recipe("recipe-en", "Pancakes", "en"))
+                .await
+                .unwrap();
+
+        let de_recipe =
+            recipes::create_recipe(&state.pool, &new_recipe("recipe-de", "Pfannkuchen", "de"))
+                .await
+                .unwrap();
+
+        // Index both recipes into the search index and commit so they're
+        // immediately visible (SearchIndex::commit reloads the reader).
+        let mut writer = state.search_index.writer().unwrap();
+        state
+            .search_index
+            .index_recipe(&mut writer, &en_recipe, None, &[], &[])
+            .unwrap();
+        state
+            .search_index
+            .index_recipe(&mut writer, &de_recipe, None, &[], &[])
+            .unwrap();
+        state.search_index.commit(&mut writer).unwrap();
+
+        // GET /api/search?locale=de returns only the German recipe.
+        let app = create_router(state.clone(), &state.settings);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/search?locale=de")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        let results = json["results"].as_array().unwrap();
+        assert_eq!(
+            results.len(),
+            1,
+            "expected only the German recipe: {json:?}"
+        );
+        assert_eq!(results[0]["id"].as_i64().unwrap(), de_recipe.id);
+        assert_eq!(results[0]["locale"].as_str().unwrap(), "de");
+
+        // GET /api/recipes/:id includes locale and locale_source.
+        let app = create_router(state.clone(), &state.settings);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/recipes/{}", de_recipe.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let json = response_json(response).await;
+        assert_eq!(json["locale"].as_str().unwrap(), "de");
+        assert_eq!(json["locale_source"].as_str().unwrap(), "declared");
     }
 }

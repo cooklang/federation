@@ -75,4 +75,11 @@ pub enum Commands {
         /// Feed URL to reindex
         url: String,
     },
+
+    /// Detect and store the locale of recipes that don't have one
+    BackfillLocales {
+        /// Recompute the locale of every recipe, not just those without one
+        #[arg(long)]
+        force: bool,
+    },
 }

@@ -352,6 +352,18 @@ impl Crawler {
             .as_ref()
             .map(|c| db::recipes::calculate_content_hash(&entry.title, Some(c)));
 
+        // Parse the Cooklang content once: it feeds both the image fallback and
+        // locale resolution, on the create and the update path alike.
+        let parsed_content = content.as_ref().and_then(|c| parse_cooklang_full(c).ok());
+
+        let locale = parsed_content
+            .as_ref()
+            .and_then(crate::indexer::resolve_locale);
+        let (locale_code, locale_source) = match &locale {
+            Some(l) => (Some(l.code.as_str()), Some(l.source.as_str())),
+            None => (None, None),
+        };
+
         let result = match existing_recipe {
             Some(recipe) => {
                 // Update existing recipe with new content
@@ -364,6 +376,8 @@ impl Crawler {
                         content_etag.as_deref(),
                         content_last_modified_dt.as_ref(),
                         entry.updated.as_ref(),
+                        locale_code,
+                        locale_source,
                     )
                     .await?;
                 }
@@ -379,11 +393,10 @@ impl Crawler {
             }
             None => {
                 // Determine image URL: prefer feed entry image, fallback to Cooklang metadata
-                let metadata_image = content.as_ref().and_then(|c| {
-                    parse_cooklang_full(c)
-                        .ok()
-                        .and_then(|parsed| parsed.metadata.and_then(|m| m.image))
-                });
+                let metadata_image = parsed_content
+                    .as_ref()
+                    .and_then(|parsed| parsed.metadata.as_ref())
+                    .and_then(|m| m.image.clone());
                 let image_url = entry
                     .image_url
                     .clone()
@@ -409,6 +422,8 @@ impl Crawler {
                     content_etag,
                     content_last_modified: content_last_modified_dt,
                     feed_entry_updated: entry.updated,
+                    locale: locale_code.map(str::to_string),
+                    locale_source: locale_source.map(str::to_string),
                 };
 
                 let (recipe, _) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;

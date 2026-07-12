@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 pub struct SearchParams {
     #[serde(default)]
     pub q: String, // Unified query string
+    /// Optional language filter, e.g. "de".
+    #[serde(default)]
+    pub locale: Option<String>,
     #[serde(default = "default_page")]
     pub page: usize,
     #[serde(default = "default_limit")]
@@ -33,6 +36,7 @@ pub struct RecipeCard {
     pub title: String,
     pub summary: Option<String>,
     pub tags: Vec<String>,
+    pub locale: Option<String>,
 }
 
 /// Pagination metadata
@@ -60,6 +64,8 @@ pub struct RecipeDetail {
     pub image_url: Option<String>,
     pub source_url: Option<String>,
     pub enclosure_url: String,
+    pub locale: Option<String>,
+    pub locale_source: Option<String>,
     pub feed: FeedInfo,
 }
 

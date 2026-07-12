@@ -14,6 +14,7 @@ pub struct RecipeSchema {
     pub servings: Field,
     pub total_time: Field,
     pub file_path: Field,
+    pub locale: Field,
 }
 
 impl RecipeSchema {
@@ -50,6 +51,10 @@ impl RecipeSchema {
         // File path (searchable, stored) - for GitHub recipes
         let file_path = schema_builder.add_text_field("file_path", TEXT | STORED);
 
+        // Locale (exact-match filter, not tokenized, deliberately excluded from
+        // the default query-parser fields so free text can't match it)
+        let locale = schema_builder.add_text_field("locale", STRING | STORED);
+
         let schema = schema_builder.build();
 
         Self {
@@ -64,6 +69,7 @@ impl RecipeSchema {
             servings,
             total_time,
             file_path,
+            locale,
         }
     }
 }

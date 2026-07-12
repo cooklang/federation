@@ -28,6 +28,7 @@ pub async fn search_recipes(
         q: params.q,
         page: params.page,
         limit: params.limit.min(state.settings.pagination.api_max_limit),
+        locale: params.locale,
     };
 
     // Execute search
@@ -49,6 +50,7 @@ pub async fn search_recipes(
             title: result.title,
             summary: result.summary,
             tags,
+            locale: result.locale,
         });
     }
 
@@ -104,6 +106,8 @@ pub async fn get_recipe(
         image_url: recipe.image_url,
         source_url: recipe.source_url,
         enclosure_url: recipe.enclosure_url,
+        locale: recipe.locale,
+        locale_source: recipe.locale_source,
         feed: FeedInfo {
             id: feed.id,
             title: feed.title,

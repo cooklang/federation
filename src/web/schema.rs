@@ -110,6 +110,11 @@ pub fn recipe_to_schema_json(recipe: &RecipeData) -> Value {
         schema["url"] = json!(recipe.source_url);
     }
 
+    // Language
+    if !recipe.locale.is_empty() {
+        schema["inLanguage"] = json!(recipe.locale);
+    }
+
     // Keywords from tags
     if let Some(metadata) = &recipe.metadata {
         if !metadata.tags.is_empty() {
@@ -293,7 +298,55 @@ fn step_to_text(step: &crate::indexer::cooklang_parser::StepData) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::handlers::FeedData;
     use super::*;
+
+    /// Minimal RecipeData for schema tests; only fields relevant to the test are varied.
+    fn sample_recipe_data() -> RecipeData {
+        RecipeData {
+            id: 1,
+            title: "Test Recipe".to_string(),
+            summary: String::new(),
+            parsed_sections: None,
+            ingredients: vec![],
+            cookware: vec![],
+            tags: vec![],
+            servings: String::new(),
+            total_time_minutes: String::new(),
+            active_time_minutes: String::new(),
+            difficulty: String::new(),
+            image_url: String::new(),
+            source_url: String::new(),
+            feed: FeedData {
+                id: 1,
+                title: "Test Feed".to_string(),
+                author: String::new(),
+            },
+            metadata: None,
+            locale: String::new(),
+            locale_name: String::new(),
+            locale_detected: false,
+        }
+    }
+
+    #[test]
+    fn test_schema_includes_in_language_when_locale_present() {
+        let mut recipe = sample_recipe_data();
+        recipe.locale = "de".to_string();
+
+        let schema = recipe_to_schema_json(&recipe);
+
+        assert_eq!(schema["inLanguage"], json!("de"));
+    }
+
+    #[test]
+    fn test_schema_omits_in_language_when_locale_absent() {
+        let recipe = sample_recipe_data();
+
+        let schema = recipe_to_schema_json(&recipe);
+
+        assert!(schema.get("inLanguage").is_none());
+    }
 
     #[test]
     fn test_format_iso_duration() {

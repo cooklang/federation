@@ -22,6 +22,19 @@
                     placeholder="Search query"
                     class="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 >
+                {% if !locales.is_empty() %}
+                <select
+                    id="locale-select"
+                    name="locale"
+                    class="px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    aria-label="Filter by language"
+                >
+                    <option value="">All languages</option>
+                    {% for option in locales %}
+                    <option value="{{ option.code }}"{% if option.code == locale %} selected{% endif %}>{{ option.name }} ({{ option.count }})</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
                 <button
                     type="submit"
                     class="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
@@ -75,6 +88,9 @@
                     {% if !recipe.difficulty.is_empty() %}
                     <span>📊 {{ recipe.difficulty }}</span>
                     {% endif %}
+                    {% if !recipe.locale_name.is_empty() %}
+                    <span>🗣️ {{ recipe.locale_name }}</span>
+                    {% endif %}
                 </div>
             </div>
         </a>
@@ -85,7 +101,7 @@
     {% if total_pages > 1 %}
     <div class="flex justify-center space-x-2">
         {% if page > 1 %}
-        <a href="?q={{ query }}&page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+        <a href="?q={{ query }}&locale={{ locale }}&page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Previous
         </a>
         {% endif %}
@@ -95,7 +111,7 @@
         </span>
 
         {% if page < total_pages %}
-        <a href="?q={{ query }}&page={{ page + 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+        <a href="?q={{ query }}&locale={{ locale }}&page={{ page + 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Next
         </a>
         {% endif %}
@@ -105,7 +121,7 @@
     {% else %}
     <div class="text-center py-12">
         <div class="text-6xl mb-4">🔍</div>
-        {% if query.is_empty() %}
+        {% if query.is_empty() && locale.is_empty() %}
         <p class="text-gray-600 text-lg">Enter a search query above to find recipes</p>
         {% else %}
         <p class="text-gray-600 text-lg">No recipes found. Try a different search!</p>
@@ -154,6 +170,9 @@
                         {% if !recipe.difficulty.is_empty() %}
                         <span>📊 {{ recipe.difficulty }}</span>
                         {% endif %}
+                        {% if !recipe.locale_name.is_empty() %}
+                        <span>🗣️ {{ recipe.locale_name }}</span>
+                        {% endif %}
                     </div>
                 </div>
             </a>
@@ -165,7 +184,7 @@
 
 <script>
     // Scroll to search container when results are displayed
-    {% if !results.is_empty() || (!query.is_empty() && results.is_empty()) %}
+    {% if !results.is_empty() || ((!query.is_empty() || !locale.is_empty()) && results.is_empty()) %}
     window.addEventListener('DOMContentLoaded', function() {
         const searchContainer = document.getElementById('search-container');
         if (searchContainer) {

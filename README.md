@@ -153,6 +153,20 @@ cargo run -- download 123 --output ./recipes
 cargo run -- publish --input ./my-recipes --output feed.xml
 ```
 
+### Backfill recipe locales
+
+Detect and store the locale of recipes that don't have one yet (author-declared
+`locale:` metadata wins, otherwise the language is detected from the recipe text).
+Touched recipes are re-indexed automatically.
+
+```bash
+# Tag only recipes that don't have a locale yet
+cargo run -- backfill-locales
+
+# Recompute the locale for every recipe, including ones already tagged
+cargo run -- backfill-locales --force
+```
+
 ## API Endpoints
 
 ### Health & Status
@@ -162,14 +176,19 @@ cargo run -- publish --input ./my-recipes --output feed.xml
 
 ### Search
 - `GET /api/search?q=<query>` - Search recipes with unified query syntax
+  - `locale` (optional) - Filter to a single language, e.g. `locale=de`. Filtering
+    by a base language (`en`) also matches its regional variants (`en-US`).
   - Examples:
     - `/api/search?q=breakfast` - Basic search
     - `/api/search?q=tags:breakfast` - Field-specific search
     - `/api/search?q=pasta%20AND%20tags:italian` - Boolean search
     - `/api/search?q=total_time:[0%20TO%2030]` - Range search
+    - `/api/search?q=breakfast&locale=fr` - Search restricted to French recipes
 
 ### Recipes
-- `GET /api/recipes/:id` - Get recipe details
+- `GET /api/recipes/:id` - Get recipe details, including `locale` (e.g. `"de"`,
+  `"en-US"`) and `locale_source` (`"declared"` if set via a Cooklang `locale:`
+  key, or `"detected"` if inferred from the recipe text)
 - `GET /api/recipes/:id/download` - Download .cook file
 
 ### Feeds
@@ -195,6 +214,27 @@ Environment variables (see `.env.example`):
 | `RATE_LIMIT` | Crawler requests per second per domain | `1` |
 | `INDEX_PATH` | Search index directory | `./data/index` |
 | `RUST_LOG` | Logging level | `info,federation=debug` |
+
+## Upgrading
+
+### Recipe locale field (search index rebuild required)
+
+This release adds a `locale` field to the Tantivy search schema (used to tag
+and filter recipes by language). Tantivy pins field ids to the schema stored
+on disk, so a search index built before this change is incompatible — **the
+server now refuses to start** against a mismatched index, with an error
+telling you what to do.
+
+Before deploying this version, delete the existing index and rebuild it:
+
+```bash
+rm -rf data/index   # or your configured INDEX_PATH
+federation backfill-locales
+```
+
+`backfill-locales` runs pending database migrations and re-indexes every
+recipe it touches, so this single command rebuilds the search index and
+backfills locales in one step. Run it before starting `serve` again.
 
 ## Production Build
 

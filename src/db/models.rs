@@ -61,6 +61,10 @@ pub struct Recipe {
     pub content_last_modified: Option<DateTime<Utc>>,
     /// The <updated> timestamp from the feed entry for comparison
     pub feed_entry_updated: Option<DateTime<Utc>>,
+    /// BCP-47-style locale code, e.g. "en", "de", "en-US". NULL when unknown.
+    pub locale: Option<String>,
+    /// How the locale was obtained: "declared" or "detected".
+    pub locale_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +89,9 @@ pub struct NewRecipe {
     pub content_last_modified: Option<DateTime<Utc>>,
     /// The <updated> timestamp from the feed entry
     pub feed_entry_updated: Option<DateTime<Utc>>,
+    /// Locale code and its provenance ("declared" | "detected").
+    pub locale: Option<String>,
+    pub locale_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
