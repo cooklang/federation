@@ -1,5 +1,6 @@
 use crate::db::models::Recipe;
 use crate::error::{Error, Result};
+use crate::indexer::locale::normalize_code;
 use crate::indexer::schema::RecipeSchema;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -233,10 +234,14 @@ impl SearchIndex {
                 .map_err(|e| Error::Search(format!("Invalid query: {e}")))?
         };
 
-        // AND an exact locale term onto the parsed query when filtering.
+        // AND an exact locale term onto the parsed query when filtering. The locale
+        // field is untokenized (exact match), so normalize the incoming filter to the
+        // canonical stored form first — otherwise `?locale=EN` or `?locale=en-us`
+        // would silently match nothing.
         let tantivy_query = match query.locale.as_deref().filter(|l| !l.is_empty()) {
             Some(locale) => {
-                let term = Term::from_field_text(self.schema.locale, locale);
+                let normalized = normalize_code(locale);
+                let term = Term::from_field_text(self.schema.locale, &normalized);
                 let locale_query: Box<dyn Query> =
                     Box::new(TermQuery::new(term, IndexRecordOption::Basic));
 
@@ -695,5 +700,45 @@ mod tests {
             )
             .unwrap();
         assert_eq!(other.results.len(), 0);
+    }
+
+    #[test]
+    fn test_locale_filter_is_case_insensitive() {
+        // Locale codes are stored canonically as `en-US`. The field is untokenized
+        // (exact match), so a differently-cased filter must be normalized before
+        // comparison, or the API silently returns zero results.
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+
+        index
+            .index_recipe(
+                &mut writer,
+                &test_recipe(1, "Biscuits", Some("en-US")),
+                None,
+                &[],
+                &[],
+            )
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+
+        for filter in ["EN", "en-us", "En-Us"] {
+            let results = index
+                .search(
+                    &SearchQuery {
+                        q: String::new(),
+                        page: 1,
+                        limit: 10,
+                        locale: Some(filter.to_string()),
+                    },
+                    10,
+                )
+                .unwrap();
+            assert_eq!(
+                results.results.len(),
+                1,
+                "filter {filter:?} should match the recipe stored as en-US"
+            );
+        }
     }
 }

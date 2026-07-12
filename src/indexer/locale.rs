@@ -38,6 +38,27 @@ pub struct RecipeLocale {
     pub source: LocaleSource,
 }
 
+/// Normalize a locale code to the canonical stored form: lowercase language,
+/// uppercase region (`EN` → `en`, `en-us` → `en-US`).
+///
+/// Locale codes are stored canonically as lowercase language plus an optional
+/// uppercase region. The Tantivy locale field is untokenized (exact match), so
+/// any caller that compares a locale code against stored values — API filters
+/// in particular — must normalize first or a differently-cased code will
+/// silently match nothing.
+pub fn normalize_code(code: &str) -> String {
+    match code.split_once('-') {
+        Some((language, region)) => {
+            format!(
+                "{}-{}",
+                language.to_ascii_lowercase(),
+                region.to_ascii_uppercase()
+            )
+        }
+        None => code.to_ascii_lowercase(),
+    }
+}
+
 /// Resolve a recipe's locale: declared metadata first, then detection.
 pub fn resolve_locale(parsed: &ParsedRecipeData) -> Option<RecipeLocale> {
     if let Some(code) = parsed.metadata.as_ref().and_then(|m| m.locale.clone()) {
@@ -292,6 +313,15 @@ Add @Prosciutto{}, @Parmesan{}, @Chorizo{}, @Bruschetta{}, @Focaccia{}, @Crostin
         // `to_bcp47` keeps the 639-3 code for languages that have no 639-1 code, so
         // `display_name` must be able to name those stored values too.
         assert_eq!(display_name("ceb").as_deref(), Some("Cebuano"));
+    }
+
+    #[test]
+    fn test_normalize_code() {
+        assert_eq!(normalize_code("en"), "en");
+        assert_eq!(normalize_code("EN"), "en");
+        assert_eq!(normalize_code("en-US"), "en-US");
+        assert_eq!(normalize_code("en-us"), "en-US");
+        assert_eq!(normalize_code("EN-us"), "en-US");
     }
 
     #[test]

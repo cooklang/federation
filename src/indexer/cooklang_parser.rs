@@ -159,12 +159,14 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
 
     // Normalized `lang` / `lang-REGION` if cooklang could parse the declared locale.
     // Cooklang rejects anything that isn't its strict format (e.g. `de`, `en_US`).
+    // Reuses the same canonicalization `SearchIndex::search` applies to incoming
+    // filters, so the two can't drift on what "canonical" means.
     let declared_locale = meta.locale().map(|(lang, region)| {
-        let lang = lang.to_ascii_lowercase();
-        match region {
-            Some(region) => format!("{lang}-{}", region.to_ascii_uppercase()),
-            None => lang,
-        }
+        let code = match region {
+            Some(region) => format!("{lang}-{region}"),
+            None => lang.to_string(),
+        };
+        crate::indexer::locale::normalize_code(&code)
     });
 
     let mut custom = Vec::new();
