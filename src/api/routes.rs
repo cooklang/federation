@@ -173,10 +173,15 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
+    use tempfile::TempDir;
     use tower::ServiceExt;
 
-    // Helper to create test app state
-    async fn create_test_state() -> AppState {
+    // Helper to create test app state.
+    //
+    // Returns the search index's `TempDir` guard alongside the state: the caller
+    // must keep it alive for the whole test, because dropping it deletes the
+    // index directory out from under Tantivy.
+    async fn create_test_state() -> (AppState, TempDir) {
         use std::sync::Arc;
 
         // Create in-memory database
@@ -185,12 +190,9 @@ mod tests {
         // Run migrations
         crate::db::run_migrations(&pool).await.unwrap();
 
-        // Create temporary directory for search index. `keep()` leaks the
-        // directory instead of deleting it when `TempDir` drops at the end of
-        // this function - tests that write to the index (not just read)
-        // need the directory to outlive this helper.
-        let temp_dir = tempfile::tempdir().unwrap().keep();
-        let search_index = crate::indexer::search::SearchIndex::new(&temp_dir).unwrap();
+        // Create temporary directory for search index
+        let temp_dir = tempfile::tempdir().unwrap();
+        let search_index = crate::indexer::search::SearchIndex::new(temp_dir.path()).unwrap();
 
         let settings = crate::config::Settings {
             database: crate::config::DatabaseConfig {
@@ -226,17 +228,21 @@ mod tests {
             },
         };
 
-        AppState {
+        let state = AppState {
             pool,
             search_index: Arc::new(search_index),
             github_indexer: None,
             settings,
-        }
+        };
+
+        (state, temp_dir)
     }
 
     #[tokio::test]
     async fn test_health_routes_exist() {
-        let state = create_test_state().await;
+        // The TempDir guard must stay alive for the whole test - dropping it deletes
+        // the search index directory out from under Tantivy.
+        let (state, _index_dir) = create_test_state().await;
         let app = create_router(state.clone(), &state.settings);
 
         // Test that API routes exist
@@ -265,7 +271,9 @@ mod tests {
         use crate::db::models::{NewFeed, NewRecipe};
         use crate::db::{feeds, recipes};
 
-        let state = create_test_state().await;
+        // The TempDir guard must stay alive for the whole test - dropping it deletes
+        // the search index directory out from under Tantivy.
+        let (state, _index_dir) = create_test_state().await;
 
         // Seed a feed and two recipes in different locales.
         let feed = feeds::create_feed(
