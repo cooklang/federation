@@ -120,6 +120,31 @@ pub async fn list_feeds_with_filter(
     Ok(feeds)
 }
 
+/// List the feeds the crawler should poll: everything except the ones that were
+/// deliberately switched off.
+///
+/// `error` feeds are included on purpose. A fetch failure is usually transient
+/// (server hiccup, timeout), so excluding them would make a single bad response
+/// permanent - the feed would never be retried and would go stale forever.
+/// A feed that recovers is flipped back to `active` by the crawler.
+pub async fn list_crawlable_feeds(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<Feed>> {
+    let feeds = sqlx::query_as::<_, Feed>(
+        r#"
+        SELECT f.* FROM feeds f
+        LEFT JOIN github_feeds gf ON f.id = gf.feed_id
+        WHERE f.status IN ('active', 'error') AND gf.id IS NULL
+        ORDER BY f.created_at DESC
+        LIMIT ? OFFSET ?
+        "#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(feeds)
+}
+
 /// Count feeds
 pub async fn count_feeds(pool: &DbPool, status: Option<&str>) -> Result<i64> {
     let count = if let Some(status) = status {
@@ -218,6 +243,31 @@ pub async fn update_feed_fetch_info(
     Ok(())
 }
 
+/// Record a successful poll that returned 304 Not Modified.
+///
+/// The feed is healthy and unchanged, so this clears any earlier error state but
+/// leaves `etag`/`last_modified` untouched - those validators are what produced
+/// the 304, and clearing them would make the next request unconditional.
+pub async fn mark_feed_unchanged(pool: &DbPool, feed_id: i64) -> Result<()> {
+    let now = Utc::now();
+
+    sqlx::query(
+        r#"
+        UPDATE feeds
+        SET last_fetched_at = ?, status = 'active', error_count = 0,
+            error_message = NULL, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(now)
+    .bind(now)
+    .bind(feed_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 /// Increment feed error count
 pub async fn increment_error_count(pool: &DbPool, feed_id: i64) -> Result<()> {
     sqlx::query("UPDATE feeds SET error_count = error_count + 1 WHERE id = ?")
@@ -284,5 +334,77 @@ mod tests {
         delete_feed(&pool, feed.id).await.unwrap();
         let count = count_feeds(&pool, None).await.unwrap();
         assert_eq!(count, 0);
+    }
+
+    async fn seed_feed(pool: &DbPool, url: &str, status: &str) -> Feed {
+        let feed = create_feed(
+            pool,
+            &NewFeed {
+                url: url.to_string(),
+                title: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        update_feed_status(pool, feed.id, status, 3, Some("boom".to_string()))
+            .await
+            .unwrap();
+
+        get_feed(pool, feed.id).await.unwrap()
+    }
+
+    /// A feed that failed once must be retried on the next scheduler tick.
+    /// Previously the scheduler only listed `active` feeds, so `error` was a
+    /// terminal state and the feed was never crawled again (issue #9).
+    #[tokio::test]
+    async fn list_crawlable_feeds_retries_errored_feeds_but_skips_disabled() {
+        let pool = init_pool("sqlite::memory:").await.unwrap();
+        run_migrations(&pool).await.unwrap();
+
+        seed_feed(&pool, "https://example.com/active.xml", "active").await;
+        seed_feed(&pool, "https://example.com/errored.xml", "error").await;
+        seed_feed(&pool, "https://example.com/disabled.xml", "disabled").await;
+
+        let feeds = list_crawlable_feeds(&pool, 50, 0).await.unwrap();
+
+        let urls: Vec<&str> = feeds.iter().map(|f| f.url.as_str()).collect();
+        assert!(urls.contains(&"https://example.com/active.xml"));
+        assert!(
+            urls.contains(&"https://example.com/errored.xml"),
+            "errored feeds must be retried, otherwise a single failure is permanent"
+        );
+        assert!(
+            !urls.contains(&"https://example.com/disabled.xml"),
+            "disabled feeds are switched off deliberately and must stay off"
+        );
+    }
+
+    /// A 304 Not Modified means the feed is healthy and unchanged: record the
+    /// fetch attempt, clear any previous error state, and keep the cached
+    /// validators so the next conditional request still works.
+    #[tokio::test]
+    async fn mark_feed_unchanged_clears_error_state_and_keeps_validators() {
+        let pool = init_pool("sqlite::memory:").await.unwrap();
+        run_migrations(&pool).await.unwrap();
+
+        let feed = seed_feed(&pool, "https://example.com/feed.xml", "error").await;
+        let modified = Utc::now();
+        update_feed_fetch_info(&pool, feed.id, Some("\"etag-v1\""), Some(modified))
+            .await
+            .unwrap();
+
+        mark_feed_unchanged(&pool, feed.id).await.unwrap();
+
+        let feed = get_feed(&pool, feed.id).await.unwrap();
+        assert_eq!(feed.status, "active");
+        assert_eq!(feed.error_count, 0);
+        assert_eq!(feed.error_message, None);
+        assert_eq!(
+            feed.etag.as_deref(),
+            Some("\"etag-v1\""),
+            "the cached ETag must survive a 304, or the next request can't be conditional"
+        );
+        assert!(feed.last_fetched_at.is_some());
     }
 }

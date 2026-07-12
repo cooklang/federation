@@ -20,16 +20,13 @@ pub struct FetchResult {
     pub content_type: Option<String>,
 }
 
-/// Result of fetching recipe content with conditional request support
+/// Outcome of a conditional fetch.
+///
+/// A 304 is the expected, healthy answer when our cached validators are still
+/// current - it is not an error, and callers must not treat it as one.
 #[derive(Debug)]
-pub enum RecipeContentResult {
-    /// Content was fetched (new or modified)
-    Fetched {
-        content: String,
-        etag: Option<String>,
-        last_modified: Option<String>,
-    },
-    /// Content not modified (304 response)
+pub enum FetchOutcome {
+    Fetched(FetchResult),
     NotModified,
 }
 
@@ -50,9 +47,15 @@ impl Fetcher {
         })
     }
 
-    /// Fetch a URL with retry logic and exponential backoff
+    /// Fetch a URL unconditionally, with retry logic and exponential backoff
     pub async fn fetch(&self, url: &str) -> Result<FetchResult> {
-        self.fetch_with_conditions(url, None, None).await
+        match self.fetch_with_conditions(url, None, None).await? {
+            FetchOutcome::Fetched(result) => Ok(result),
+            // No validators were sent, so a 304 here means the server is broken.
+            FetchOutcome::NotModified => Err(Error::FeedParse(
+                "server returned 304 to an unconditional request".to_string(),
+            )),
+        }
     }
 
     /// Fetch a URL with conditional request headers (ETag, Last-Modified)
@@ -61,13 +64,13 @@ impl Fetcher {
         url: &str,
         etag: Option<&str>,
         last_modified: Option<&str>,
-    ) -> Result<FetchResult> {
+    ) -> Result<FetchOutcome> {
         let mut retries = 0;
         let mut backoff = self.initial_backoff;
 
         loop {
             match self.fetch_once(url, etag, last_modified).await {
-                Ok(result) => return Ok(result),
+                Ok(outcome) => return Ok(outcome),
                 Err(e) if retries < self.max_retries && Self::is_retryable(&e) => {
                     retries += 1;
                     warn!(
@@ -87,7 +90,7 @@ impl Fetcher {
         url: &str,
         etag: Option<&str>,
         last_modified: Option<&str>,
-    ) -> Result<FetchResult> {
+    ) -> Result<FetchOutcome> {
         debug!("Fetching: {}", url);
 
         let mut request = self.client.get(url);
@@ -103,9 +106,10 @@ impl Fetcher {
 
         let response = request.send().await?;
 
-        // Handle 304 Not Modified
+        // 304 means our cached copy is still current - a success, not a failure
         if response.status() == StatusCode::NOT_MODIFIED {
-            return Err(Error::FeedParse("304 Not Modified".to_string()));
+            debug!("Not modified: {}", url);
+            return Ok(FetchOutcome::NotModified);
         }
 
         // Check for success status
@@ -167,12 +171,12 @@ impl Fetcher {
         // Read response body with size limit
         let content = self.read_with_limit(response).await?;
 
-        Ok(FetchResult {
+        Ok(FetchOutcome::Fetched(FetchResult {
             content,
             etag: new_etag,
             last_modified: new_last_modified,
             content_type,
-        })
+        }))
     }
 
     async fn read_with_limit(&self, response: Response) -> Result<String> {
@@ -201,27 +205,14 @@ impl Fetcher {
             _ => false,
         }
     }
+}
 
-    /// Fetch recipe content with conditional request support
-    /// Returns NotModified if the content hasn't changed (304 response)
-    pub async fn fetch_recipe_content(
-        &self,
-        url: &str,
-        etag: Option<&str>,
-        last_modified: Option<&str>,
-    ) -> Result<RecipeContentResult> {
-        match self.fetch_with_conditions(url, etag, last_modified).await {
-            Ok(result) => Ok(RecipeContentResult::Fetched {
-                content: result.content,
-                etag: result.etag,
-                last_modified: result.last_modified,
-            }),
-            Err(Error::FeedParse(msg)) if msg == "304 Not Modified" => {
-                Ok(RecipeContentResult::NotModified)
-            }
-            Err(e) => Err(e),
-        }
-    }
+/// Format a timestamp as an HTTP-date (IMF-fixdate), the only format a server is
+/// required to accept in `If-Modified-Since` (RFC 9110 5.6.7). Neither
+/// `to_rfc3339` nor chrono's `to_rfc2822` produces it: the latter renders the
+/// zone as `+0000` instead of `GMT`.
+pub fn http_date(dt: &chrono::DateTime<chrono::Utc>) -> String {
+    dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
 }
 
 /// Rate limiter for respecting crawl delays
@@ -290,5 +281,19 @@ mod tests {
     fn test_fetcher_creation() {
         let fetcher = Fetcher::new("TestBot/1.0".to_string(), 5_242_880);
         assert!(fetcher.is_ok());
+    }
+
+    #[test]
+    fn http_date_renders_imf_fixdate() {
+        let dt = chrono::DateTime::parse_from_rfc3339("2026-04-15T10:22:42Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        assert_eq!(http_date(&dt), "Wed, 15 Apr 2026 10:22:42 GMT");
+
+        // The formats previously sent on If-Modified-Since. RFC 3339 is not an
+        // HTTP-date at all; RFC 2822 renders the zone as "+0000", not "GMT".
+        assert_ne!(http_date(&dt), dt.to_rfc3339());
+        assert_ne!(http_date(&dt), dt.to_rfc2822());
     }
 }

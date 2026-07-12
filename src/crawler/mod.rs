@@ -10,7 +10,7 @@ use crate::db::{self, models::*, DbPool};
 use crate::error::{Error, Result};
 use crate::indexer::parse_cooklang_full;
 use crate::utils::validation;
-use fetcher::{Fetcher, RateLimiter, RecipeContentResult};
+use fetcher::{http_date, FetchOutcome, Fetcher, RateLimiter};
 use parser::{parse_feed, ParsedEntry};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -77,14 +77,23 @@ impl Crawler {
             .fetch_with_conditions(
                 feed_url,
                 feed.etag.as_deref(),
-                feed.last_modified
-                    .as_ref()
-                    .map(|dt| dt.to_rfc3339())
-                    .as_deref(),
+                feed.last_modified.as_ref().map(http_date).as_deref(),
             )
             .await
         {
-            Ok(result) => result,
+            Ok(FetchOutcome::Fetched(result)) => result,
+            Ok(FetchOutcome::NotModified) => {
+                // The feed is healthy, it just has nothing new for us.
+                info!("Feed {} unchanged since last crawl (304)", feed_url);
+                db::feeds::mark_feed_unchanged(pool, feed.id).await?;
+
+                return Ok(CrawlResult {
+                    feed_id: feed.id,
+                    new_recipes: 0,
+                    updated_recipes: 0,
+                    skipped_recipes: 0,
+                });
+            }
             Err(e) => {
                 error!("Failed to fetch feed {}: {}", feed_url, e);
                 db::feeds::increment_error_count(pool, feed.id).await?;
@@ -267,27 +276,23 @@ impl Crawler {
                 // Use conditional request with stored caching headers
                 let result = self
                     .fetcher
-                    .fetch_recipe_content(
+                    .fetch_with_conditions(
                         enclosure_url,
                         recipe.content_etag.as_deref(),
                         recipe
                             .content_last_modified
                             .as_ref()
-                            .map(|dt| dt.to_rfc2822())
+                            .map(http_date)
                             .as_deref(),
                     )
                     .await;
 
                 match result {
-                    Ok(RecipeContentResult::Fetched {
-                        content,
-                        etag,
-                        last_modified,
-                    }) => {
+                    Ok(FetchOutcome::Fetched(fetched)) => {
                         debug!("Fetched updated content for {}", entry.id);
-                        (Some(content), etag, last_modified)
+                        (Some(fetched.content), fetched.etag, fetched.last_modified)
                     }
-                    Ok(RecipeContentResult::NotModified) => {
+                    Ok(FetchOutcome::NotModified) => {
                         // Content unchanged, just update the feed_entry_updated timestamp
                         debug!("Content not modified for {} (304)", entry.id);
                         db::recipes::update_feed_entry_timestamp(
@@ -311,16 +316,18 @@ impl Crawler {
                 // New recipe, fetch without conditional headers
                 match self
                     .fetcher
-                    .fetch_recipe_content(enclosure_url, None, None)
+                    .fetch_with_conditions(enclosure_url, None, None)
                     .await
                 {
-                    Ok(RecipeContentResult::Fetched {
-                        content,
-                        etag,
-                        last_modified,
-                    }) => (Some(content), etag, last_modified),
-                    Ok(RecipeContentResult::NotModified) => {
+                    Ok(FetchOutcome::Fetched(fetched)) => {
+                        (Some(fetched.content), fetched.etag, fetched.last_modified)
+                    }
+                    Ok(FetchOutcome::NotModified) => {
                         // Shouldn't happen without conditional headers, but handle gracefully
+                        warn!(
+                            "Server returned 304 for {} despite no conditional headers",
+                            enclosure_url
+                        );
                         (None, None, None)
                     }
                     Err(e) => {
@@ -433,56 +440,10 @@ impl Crawler {
         limiter.wait().await;
     }
 
-    /// Fetch feed with conditional requests for scheduler
-    pub async fn fetch_feed(
-        &self,
-        url: &str,
-        etag: Option<&str>,
-        last_modified: Option<&chrono::DateTime<chrono::Utc>>,
-    ) -> Result<FetchedFeed> {
-        let last_modified_str = last_modified.map(|dt| dt.to_rfc2822());
-
-        match self
-            .fetcher
-            .fetch_with_conditions(url, etag, last_modified_str.as_deref())
-            .await
-        {
-            Ok(result) => {
-                let last_modified = result
-                    .last_modified
-                    .and_then(|s| chrono::DateTime::parse_from_rfc2822(&s).ok())
-                    .map(|dt| dt.with_timezone(&chrono::Utc));
-
-                Ok(FetchedFeed {
-                    content: result.content,
-                    etag: result.etag,
-                    last_modified,
-                    modified: true,
-                })
-            }
-            Err(Error::FeedParse(msg)) if msg == "304 Not Modified" => Ok(FetchedFeed {
-                content: String::new(),
-                etag: None,
-                last_modified: None,
-                modified: false,
-            }),
-            Err(e) => Err(e),
-        }
-    }
-
     /// Parse feed content
     pub fn parse_feed(&self, content: &str) -> Result<parser::ParsedFeed> {
         parser::parse_feed(content)
     }
-}
-
-/// Feed fetch result for scheduler
-#[derive(Debug)]
-pub struct FetchedFeed {
-    pub content: String,
-    pub etag: Option<String>,
-    pub last_modified: Option<chrono::DateTime<chrono::Utc>>,
-    pub modified: bool,
 }
 
 #[derive(Debug)]
