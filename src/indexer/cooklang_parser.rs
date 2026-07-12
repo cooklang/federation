@@ -157,28 +157,43 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
         .map(|tags_vec| tags_vec.iter().map(|t| t.to_string()).collect())
         .unwrap_or_default();
 
+    // Normalized `lang` / `lang-REGION` if cooklang could parse the declared locale.
+    // Cooklang rejects anything that isn't its strict format (e.g. `de`, `en_US`).
+    let declared_locale = meta.locale().map(|(lang, region)| {
+        let lang = lang.to_ascii_lowercase();
+        match region {
+            Some(region) => format!("{lang}-{}", region.to_ascii_uppercase()),
+            None => lang,
+        }
+    });
+
     let mut custom = Vec::new();
     for (key, value) in &meta.map {
         // Skip standard metadata fields
         let key_str = key.as_str();
-        if !matches!(
-            key_str,
-            Some("tags")
-                | Some("title")
-                | Some("description")
-                | Some("servings")
-                | Some("time")
-                | Some("difficulty")
-                | Some("course")
-                | Some("prep time")
-                | Some("cook time")
-                | Some("cuisine")
-                | Some("diet")
-                | Some("author")
-                | Some("source")
-                | Some("image")
-                | Some("locale")
-        ) {
+        // Only drop the raw `locale` key when we actually captured it as a typed
+        // locale; otherwise an unparseable value would vanish entirely, so let it
+        // fall through to `custom`.
+        let locale_captured = key_str == Some("locale") && declared_locale.is_some();
+        if !locale_captured
+            && !matches!(
+                key_str,
+                Some("tags")
+                    | Some("title")
+                    | Some("description")
+                    | Some("servings")
+                    | Some("time")
+                    | Some("difficulty")
+                    | Some("course")
+                    | Some("prep time")
+                    | Some("cook time")
+                    | Some("cuisine")
+                    | Some("diet")
+                    | Some("author")
+                    | Some("source")
+                    | Some("image")
+            )
+        {
             if let (Some(k), Some(v)) = (key.as_str(), value.as_str()) {
                 custom.push((k.to_string(), v.to_string()));
             }
@@ -228,10 +243,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
                 .get("title")
                 .and_then(|t| t.as_str())
                 .map(|t| t.to_string()),
-            locale: meta.locale().map(|(lang, region)| match region {
-                Some(region) => format!("{}-{}", lang.to_lowercase(), region.to_uppercase()),
-                None => lang.to_lowercase(),
-            }),
+            locale: declared_locale,
             description: meta.description().map(|d| d.to_string()),
             servings: meta.servings().map(|s| format!("{s}")),
             time: time_str,
@@ -490,6 +502,22 @@ locale: de
         let metadata = parsed.metadata.expect("metadata should be present");
 
         assert_eq!(metadata.locale, Some("de".to_string()));
+    }
+
+    #[test]
+    fn test_unparseable_locale_falls_back_to_custom() {
+        // Cooklang only accepts `en_US`; a hyphenated value fails its validation.
+        // It must still survive as a custom metadata entry rather than vanishing.
+        let content = "---\nlocale: en-US\n---\n\nMix @flour{2%cups} with @water{1%cup}.\n";
+
+        let parsed = parse_recipe(content).unwrap();
+        let metadata = parsed.metadata.expect("metadata should be present");
+
+        assert_eq!(metadata.locale, None);
+        assert!(metadata
+            .custom
+            .iter()
+            .any(|(k, v)| k == "locale" && v == "en-US"));
     }
 
     #[test]
