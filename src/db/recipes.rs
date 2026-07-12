@@ -692,4 +692,149 @@ mod tests {
         let locales = list_locales(&pool).await.unwrap();
         assert_eq!(locales, vec![("fr".to_string(), 1)]);
     }
+
+    #[tokio::test]
+    async fn test_update_with_content_rederives_locale() {
+        // Locale is derived from content: a content update recomputes it, and an
+        // update that resolves to nothing clears it rather than leaving a stale value.
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        let feed = feeds::create_feed(
+            &pool,
+            &NewFeed {
+                url: "https://example.com/feed.xml".to_string(),
+                title: Some("Test Feed".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let recipe = create_recipe(
+            &pool,
+            &NewRecipe {
+                feed_id: feed.id,
+                external_id: "recipe-1".to_string(),
+                title: "Pfannkuchen".to_string(),
+                source_url: None,
+                enclosure_url: "https://example.com/recipe.cook".to_string(),
+                content: Some("Mehl und Wasser verrühren.".to_string()),
+                summary: None,
+                servings: None,
+                total_time_minutes: None,
+                active_time_minutes: None,
+                difficulty: None,
+                image_url: None,
+                published_at: None,
+                content_hash: None,
+                content_etag: None,
+                content_last_modified: None,
+                feed_entry_updated: None,
+                locale: Some("de".to_string()),
+                locale_source: Some("detected".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(recipe.locale.as_deref(), Some("de"));
+        assert_eq!(recipe.locale_source.as_deref(), Some("detected"));
+
+        // New content resolves to a new locale, which is carried through.
+        update_recipe_with_content(
+            &pool,
+            recipe.id,
+            "Mélanger la farine et l'eau.",
+            None,
+            None,
+            None,
+            None,
+            Some("fr"),
+            Some("declared"),
+        )
+        .await
+        .unwrap();
+
+        let updated = get_recipe(&pool, recipe.id).await.unwrap();
+        assert_eq!(updated.locale.as_deref(), Some("fr"));
+        assert_eq!(updated.locale_source.as_deref(), Some("declared"));
+
+        // Content whose locale cannot be resolved clears the columns: we no longer
+        // know the locale, so NULL is recorded rather than a stale guess.
+        update_recipe_with_content(&pool, recipe.id, "???", None, None, None, None, None, None)
+            .await
+            .unwrap();
+
+        let cleared = get_recipe(&pool, recipe.id).await.unwrap();
+        assert_eq!(cleared.locale, None);
+        assert_eq!(cleared.locale_source, None);
+    }
+
+    #[tokio::test]
+    async fn test_list_locales_orders_by_count_then_alphabetically() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        let feed = feeds::create_feed(
+            &pool,
+            &NewFeed {
+                url: "https://example.com/feed.xml".to_string(),
+                title: Some("Test Feed".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        // en x3, then de x2 and fr x2 (a tie), plus one recipe with no locale at all.
+        let locales = [
+            Some("en"),
+            Some("en"),
+            Some("en"),
+            Some("fr"),
+            Some("fr"),
+            Some("de"),
+            Some("de"),
+            None,
+        ];
+
+        for (i, locale) in locales.iter().enumerate() {
+            create_recipe(
+                &pool,
+                &NewRecipe {
+                    feed_id: feed.id,
+                    external_id: format!("recipe-{i}"),
+                    title: format!("Recipe {i}"),
+                    source_url: None,
+                    enclosure_url: format!("https://example.com/recipe-{i}.cook"),
+                    content: None,
+                    summary: None,
+                    servings: None,
+                    total_time_minutes: None,
+                    active_time_minutes: None,
+                    difficulty: None,
+                    image_url: None,
+                    published_at: None,
+                    content_hash: None,
+                    content_etag: None,
+                    content_last_modified: None,
+                    feed_entry_updated: None,
+                    locale: locale.map(|l| l.to_string()),
+                    locale_source: locale.map(|_| "detected".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        // Most common first; ties broken alphabetically; NULL locales excluded.
+        let listed = list_locales(&pool).await.unwrap();
+        assert_eq!(
+            listed,
+            vec![
+                ("en".to_string(), 3),
+                ("de".to_string(), 2),
+                ("fr".to_string(), 2),
+            ]
+        );
+    }
 }
