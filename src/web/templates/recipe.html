@@ -106,6 +106,13 @@
                 </div>
                 {% endif %}
 
+                {% if !recipe.locale_name.is_empty() %}
+                <div class="metadata-pill">
+                    <span class="emoji">🗣️</span>
+                    <span><strong>{{ recipe.locale_name }}</strong>{% if recipe.locale_detected %} <span class="text-gray-500 text-sm">(detected)</span>{% endif %}</span>
+                </div>
+                {% endif %}
+
                 <!-- Custom metadata -->
                 {% for (key, value) in metadata.custom %}
                 <div class="metadata-pill">
