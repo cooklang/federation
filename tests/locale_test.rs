@@ -103,6 +103,55 @@ async fn test_backfill_detects_locales_and_makes_them_searchable() {
 }
 
 #[tokio::test]
+async fn test_backfill_still_indexes_recipes_with_undetectable_locale() {
+    // "Oats" is real content from the local database: too short/ambiguous for
+    // whatlang to reliably detect a language. Before the fix, backfill_locales
+    // skipped indexing entirely for any recipe whose locale couldn't be
+    // resolved, so it would silently vanish from Tantivy on every rerun
+    // (including the `rm -rf data/index && federation backfill-locales`
+    // upgrade path the README recommends).
+    let (pool, feed_id) = setup().await;
+    let dir = tempdir().unwrap();
+    let index = SearchIndex::new(dir.path()).unwrap();
+
+    let recipe = recipes::create_recipe(&pool, &new_recipe(feed_id, "oats-1", "Oats", "Oats"))
+        .await
+        .unwrap();
+
+    let stats = backfill_locales(&pool, &index, false).await.unwrap();
+    assert_eq!(stats.scanned, 1);
+    assert_eq!(stats.updated, 0, "locale could not be resolved");
+    assert_eq!(
+        stats.skipped, 1,
+        "skipped still counts unresolved-locale recipes"
+    );
+
+    // The DB locale stays NULL...
+    let unchanged = recipes::get_recipe(&pool, recipe.id).await.unwrap();
+    assert_eq!(unchanged.locale, None);
+
+    // ...but the recipe must still be present and searchable in the index.
+    let results = index
+        .search(
+            &SearchQuery {
+                q: "Oats".to_string(),
+                page: 1,
+                limit: 10,
+                locale: None,
+            },
+            10,
+        )
+        .unwrap();
+
+    assert_eq!(
+        results.results.len(),
+        1,
+        "recipe with unresolvable locale must still be indexed"
+    );
+    assert_eq!(results.results[0].recipe_id, recipe.id);
+}
+
+#[tokio::test]
 async fn test_backfill_skips_recipes_that_already_have_a_locale() {
     let (pool, feed_id) = setup().await;
     let dir = tempdir().unwrap();
