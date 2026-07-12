@@ -28,6 +28,7 @@ pub async fn search_recipes(
         q: params.q,
         page: params.page,
         limit: params.limit.min(state.settings.pagination.api_max_limit),
+        locale: None,
     };
 
     // Execute search

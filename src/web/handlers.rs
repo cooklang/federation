@@ -75,6 +75,7 @@ pub async fn index(
             q: query.clone(),
             page: params.page,
             limit: state.settings.pagination.web_default_limit,
+            locale: None,
         };
 
         // Execute search
