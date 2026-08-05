@@ -3,5 +3,6 @@
 
 pub mod handlers;
 pub mod schema;
+pub mod seo;
 
 // Placeholder - to be implemented in Phase 5

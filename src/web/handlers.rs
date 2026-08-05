@@ -220,6 +220,24 @@ pub async fn index(
 struct RecipeTemplate {
     recipe: RecipeData,
     schema_json: String,
+    meta_description: String,
+    canonical_url: String,
+}
+
+/// Meta-description text: the recipe summary when there is one, truncated to
+/// search-snippet length on a character boundary; a generic line otherwise.
+fn recipe_meta_description(title: &str, summary: &str) -> String {
+    const MAX_LEN: usize = 155;
+    let summary = summary.trim();
+    if summary.is_empty() {
+        return format!("{title} — a community Cooklang recipe: ingredients, steps, and the plain-text .cook source.");
+    }
+    if summary.chars().count() <= MAX_LEN {
+        summary.to_string()
+    } else {
+        let truncated: String = summary.chars().take(MAX_LEN - 1).collect();
+        format!("{}…", truncated.trim_end())
+    }
 }
 
 #[derive(Clone)]
@@ -342,9 +360,18 @@ pub async fn recipe_detail(
     let schema = super::schema::recipe_to_schema_json(&recipe_data);
     let schema_json = serde_json::to_string_pretty(&schema).unwrap_or_else(|_| "{}".to_string());
 
+    let meta_description = recipe_meta_description(&recipe_data.title, &recipe_data.summary);
+    let canonical_url = format!(
+        "{}/recipes/{}",
+        super::seo::base_url(&state),
+        recipe_data.id
+    );
+
     let template = RecipeTemplate {
         recipe: recipe_data,
         schema_json,
+        meta_description,
+        canonical_url,
     };
 
     Ok(Html(template.render().map_err(|e| {

@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 
+{% block meta %}
+<meta name="description" content="{{ meta_description }}">
+<link rel="canonical" href="{{ canonical_url }}">
+{% endblock %}
+
 {% block head_extra %}
 {% if !schema_json.is_empty() %}
 <script type="application/ld+json">

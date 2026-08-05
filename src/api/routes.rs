@@ -90,6 +90,8 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
         .route("/feeds/:id/recipes", get(web_handlers::feed_recipes_page))
         .route("/about", get(web_handlers::about_page))
         .route("/validate", get(web_handlers::validate_page))
+        .route("/sitemap.xml", get(crate::web::seo::sitemap_xml))
+        .route("/robots.txt", get(crate::web::seo::robots_txt))
         .with_state(state.clone());
 
     // Health check routes (no state needed for health, state needed for ready)

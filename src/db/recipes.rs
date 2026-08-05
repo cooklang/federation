@@ -316,6 +316,14 @@ pub async fn delete_recipe(pool: &DbPool, recipe_id: i64) -> Result<()> {
     Ok(())
 }
 
+/// List all recipe ids in stable order (for the sitemap)
+pub async fn list_recipe_ids(pool: &DbPool) -> Result<Vec<i64>> {
+    let rows: Vec<(i64,)> = sqlx::query_as("SELECT id FROM recipes ORDER BY id")
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
 /// List recently indexed recipes
 pub async fn list_recently_indexed(pool: &DbPool, limit: i64) -> Result<Vec<Recipe>> {
     let recipes = sqlx::query_as::<_, Recipe>(
