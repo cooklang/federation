@@ -68,6 +68,10 @@ COPY --from=builder /app/src/web/static /app/src/web/static
 # Copy templates
 COPY --from=builder /app/src/web/templates /app/src/web/templates
 
+# Run as unprivileged user (uid 1000 matches the host deploy user,
+# so files written to the bind-mounted /app/data stay owned by it)
+USER app
+
 # Expose port (default, can be overridden by env var)
 EXPOSE 3100
 
