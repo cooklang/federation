@@ -47,3 +47,7 @@ tailwindcss
 tailwindcss-*
 src/web/static/css/output.css
 node_modules/
+
+# Python
+__pycache__/
+*.pyc
