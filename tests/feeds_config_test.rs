@@ -10,8 +10,8 @@ use federation::config::feeds::FeedConfig;
 #[test]
 fn shipped_feed_config_is_valid() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/config/feeds.yaml");
-    let config = FeedConfig::from_file(path)
-        .unwrap_or_else(|e| panic!("config/feeds.yaml is invalid: {e}"));
+    let config =
+        FeedConfig::from_file(path).unwrap_or_else(|e| panic!("config/feeds.yaml is invalid: {e}"));
 
     assert!(!config.feeds.is_empty(), "feed config has no feeds");
     assert!(
