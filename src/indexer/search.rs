@@ -1,10 +1,11 @@
 use crate::db::models::Recipe;
 use crate::error::{Error, Result};
 use crate::indexer::locale::normalize_code;
+use crate::indexer::plain_text::instructions_text;
 use crate::indexer::schema::RecipeSchema;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tantivy::collector::TopDocs;
+use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, TermQuery};
 use tantivy::schema::IndexRecordOption;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
@@ -74,6 +75,8 @@ impl SearchIndex {
                 .map_err(|e| Error::Search(format!("Failed to create index: {e}")))?
         };
 
+        RecipeSchema::register_tokenizers(&index);
+
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
@@ -125,9 +128,9 @@ impl SearchIndex {
             doc.add_text(self.schema.summary, summary);
         }
 
-        // Add instructions (from content)
+        // Add instructions as rendered prose, not raw Cooklang markup
         if let Some(content) = &recipe.content {
-            doc.add_text(self.schema.instructions, content);
+            doc.add_text(self.schema.instructions, instructions_text(content));
         }
 
         // Add servings
@@ -211,8 +214,10 @@ impl SearchIndex {
     pub fn search(&self, query: &SearchQuery, max_limit: usize) -> Result<SearchResults> {
         let searcher = self.reader.searcher();
 
-        // Build query parser with all searchable fields
-        let query_parser = QueryParser::for_index(
+        // Build query parser over the fields free text should search. The file
+        // path is excluded: directory names are not recipe content, but it can
+        // still be targeted explicitly with `file_path:`.
+        let mut query_parser = QueryParser::for_index(
             &self.index,
             vec![
                 self.schema.title,
@@ -221,9 +226,18 @@ impl SearchIndex {
                 self.schema.ingredients,
                 self.schema.tags,
                 self.schema.difficulty,
-                self.schema.file_path,
             ],
         );
+
+        // A word in the title or tags says more about a recipe than the same word
+        // buried in a step.
+        query_parser.set_field_boost(self.schema.title, 3.0);
+        query_parser.set_field_boost(self.schema.tags, 2.0);
+        query_parser.set_field_boost(self.schema.ingredients, 1.5);
+
+        // Every term narrows the result set: `vegan tags:dessert` means vegan AND
+        // dessert. Tantivy's default is OR, which turns field filters into suggestions.
+        query_parser.set_conjunction_by_default();
 
         // Parse unified query string
         let tantivy_query = if query.q.is_empty() {
@@ -257,19 +271,17 @@ impl SearchIndex {
         let offset = (query.page.saturating_sub(1)) * query.limit;
         let limit = query.limit.min(max_limit);
 
-        // Execute search
-        let top_docs = searcher
-            .search(&*tantivy_query, &TopDocs::with_limit(limit + offset))
+        // Execute search: the page of hits plus a full count in one pass.
+        let (top_docs, total) = searcher
+            .search(
+                &*tantivy_query,
+                &(TopDocs::with_limit(limit).and_offset(offset), Count),
+            )
             .map_err(|e| Error::Search(format!("Search failed: {e}")))?;
-
-        // Get total count
-        let total = top_docs.len();
 
         // Extract results with pagination
         let results: Vec<SearchResult> = top_docs
             .into_iter()
-            .skip(offset)
-            .take(limit)
             .filter_map(|(score, doc_address)| {
                 let doc = searcher.doc::<tantivy::TantivyDocument>(doc_address).ok()?;
 
@@ -740,5 +752,255 @@ mod tests {
                 "filter {filter:?} should match the recipe stored as en-US"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod quality_tests {
+    use super::*;
+    use crate::db::models::Recipe;
+    use tempfile::tempdir;
+
+    fn recipe(id: i64, title: &str, content: &str) -> Recipe {
+        Recipe {
+            id,
+            feed_id: 1,
+            external_id: format!("ext-{id}"),
+            title: title.to_string(),
+            source_url: None,
+            enclosure_url: format!("https://example.com/{id}.cook"),
+            content: Some(content.to_string()),
+            summary: None,
+            servings: None,
+            total_time_minutes: None,
+            active_time_minutes: None,
+            difficulty: None,
+            image_url: None,
+            published_at: None,
+            updated_at: None,
+            indexed_at: None,
+            created_at: chrono::Utc::now(),
+            content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
+            locale: Some("en".to_string()),
+            locale_source: None,
+        }
+    }
+
+    fn q(text: &str, page: usize, limit: usize) -> SearchQuery {
+        SearchQuery {
+            q: text.to_string(),
+            page,
+            limit,
+            locale: None,
+        }
+    }
+
+    fn ids(results: &SearchResults) -> Vec<i64> {
+        results.results.iter().map(|r| r.recipe_id).collect()
+    }
+
+    #[test]
+    fn all_query_terms_must_match() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut w = index.writer().unwrap();
+        index
+            .index_recipe(
+                &mut w,
+                &recipe(1, "Vegan Lemon Cake", "Bake it."),
+                None,
+                &["dessert".into(), "vegan".into()],
+                &[],
+            )
+            .unwrap();
+        index
+            .index_recipe(
+                &mut w,
+                &recipe(2, "Vegan Noodle Soup", "Simmer it."),
+                None,
+                &["soup".into(), "vegan".into()],
+                &[],
+            )
+            .unwrap();
+        index
+            .index_recipe(
+                &mut w,
+                &recipe(3, "Chocolate Tart", "Chill it."),
+                None,
+                &["dessert".into()],
+                &[],
+            )
+            .unwrap();
+        index.commit(&mut w).unwrap();
+
+        let results = index.search(&q("vegan tags:dessert", 1, 10), 100).unwrap();
+        assert_eq!(
+            ids(&results),
+            vec![1],
+            "only the vegan dessert should match"
+        );
+
+        let results = index
+            .search(&q("tags:dessert -chocolate", 1, 10), 100)
+            .unwrap();
+        assert_eq!(ids(&results), vec![1], "exclusion should still work");
+    }
+
+    #[test]
+    fn total_counts_every_hit_and_pages_are_reachable() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut w = index.writer().unwrap();
+        for id in 1..=5 {
+            index
+                .index_recipe(
+                    &mut w,
+                    &recipe(id, &format!("Pancakes {id}"), "Flip them."),
+                    None,
+                    &[],
+                    &[],
+                )
+                .unwrap();
+        }
+        index.commit(&mut w).unwrap();
+
+        let page1 = index.search(&q("pancakes", 1, 2), 100).unwrap();
+        assert_eq!(page1.total, 5);
+        assert_eq!(page1.total_pages, 3);
+        assert_eq!(page1.results.len(), 2);
+
+        let page3 = index.search(&q("pancakes", 3, 2), 100).unwrap();
+        assert_eq!(page3.total, 5);
+        assert_eq!(page3.results.len(), 1);
+
+        let all: std::collections::BTreeSet<i64> = (1..=3)
+            .flat_map(|p| ids(&index.search(&q("pancakes", p, 2), 100).unwrap()))
+            .collect();
+        assert_eq!(all.len(), 5, "paging must visit every recipe exactly once");
+    }
+
+    #[test]
+    fn title_match_outranks_instructions_match() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut w = index.writer().unwrap();
+        // The body mentions brownies many times, the other recipe only in the title.
+        index
+            .index_recipe(
+                &mut w,
+                &recipe(
+                    1,
+                    "Vanilla Ice Cream",
+                    "Serve with brownies. Brownies love ice cream. Brownies again.",
+                ),
+                None,
+                &[],
+                &[],
+            )
+            .unwrap();
+        index
+            .index_recipe(
+                &mut w,
+                &recipe(2, "Fudgy Brownies", "Bake until set."),
+                None,
+                &[],
+                &[],
+            )
+            .unwrap();
+        index.commit(&mut w).unwrap();
+
+        let results = index.search(&q("brownies", 1, 10), 100).unwrap();
+        assert_eq!(ids(&results), vec![2, 1]);
+    }
+
+    #[test]
+    fn free_text_does_not_match_file_path() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut w = index.writer().unwrap();
+        index
+            .index_recipe(
+                &mut w,
+                &recipe(1, "Tomato Soup", "Simmer."),
+                Some("archive/breakfast/soup.cook"),
+                &[],
+                &[],
+            )
+            .unwrap();
+        index.commit(&mut w).unwrap();
+
+        let results = index.search(&q("breakfast", 1, 10), 100).unwrap();
+        assert!(
+            ids(&results).is_empty(),
+            "a directory name is not recipe content"
+        );
+
+        let results = index.search(&q("file_path:breakfast", 1, 10), 100).unwrap();
+        assert_eq!(ids(&results), vec![1], "explicit field queries still work");
+    }
+
+    #[test]
+    fn singular_query_matches_plural_title() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut w = index.writer().unwrap();
+        index
+            .index_recipe(
+                &mut w,
+                &recipe(1, "Chocolate Cakes", "Bake."),
+                None,
+                &["desserts".into()],
+                &["eggs".into()],
+            )
+            .unwrap();
+        index.commit(&mut w).unwrap();
+
+        assert_eq!(ids(&index.search(&q("cake", 1, 10), 100).unwrap()), vec![1]);
+        assert_eq!(
+            ids(&index.search(&q("tags:dessert", 1, 10), 100).unwrap()),
+            vec![1]
+        );
+        assert_eq!(
+            ids(&index.search(&q("ingredients:egg", 1, 10), 100).unwrap()),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn instructions_index_plain_text_not_cooklang_markup() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut w = index.writer().unwrap();
+        let content = "---\ntitle: Dressing\n---\nWhisk @olive oil{2%tbsp} with #bowl{} for ~{1%minute}. -- secret note\n";
+        index
+            .index_recipe(&mut w, &recipe(1, "Dressing", content), None, &[], &[])
+            .unwrap();
+        index.commit(&mut w).unwrap();
+
+        assert_eq!(
+            ids(&index
+                .search(&q("instructions:\"olive oil\"", 1, 10), 100)
+                .unwrap()),
+            vec![1]
+        );
+        assert_eq!(
+            ids(&index.search(&q("whisk bowl", 1, 10), 100).unwrap()),
+            vec![1]
+        );
+        assert!(
+            ids(&index.search(&q("instructions:tbsp", 1, 10), 100).unwrap()).is_empty(),
+            "units are noise"
+        );
+        assert!(
+            ids(&index.search(&q("instructions:secret", 1, 10), 100).unwrap()).is_empty(),
+            "comments are not indexed"
+        );
+        assert!(
+            ids(&index.search(&q("instructions:title", 1, 10), 100).unwrap()).is_empty(),
+            "frontmatter keys are not indexed"
+        );
     }
 }

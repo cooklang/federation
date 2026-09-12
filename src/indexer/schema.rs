@@ -1,4 +1,13 @@
-use tantivy::schema::{Field, Schema, FAST, INDEXED, STORED, STRING, TEXT};
+use tantivy::schema::{
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
+    STRING, TEXT,
+};
+use tantivy::tokenizer::{LowerCaser, RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer};
+use tantivy::Index;
+
+/// Name of the analyzer used for every free-text recipe field. It lowercases and
+/// stems, so `cake` finds "Cakes" and `tags:dessert` finds "desserts".
+pub const RECIPE_TOKENIZER: &str = "recipe_text";
 
 /// Schema for recipe search index
 #[derive(Clone)]
@@ -24,20 +33,26 @@ impl RecipeSchema {
         // Recipe ID (stored, indexed for deletion, fast for filtering)
         let id = schema_builder.add_i64_field("id", STORED | FAST | INDEXED);
 
-        // Title (searchable, stored, boosted)
-        let title = schema_builder.add_text_field("title", TEXT | STORED);
+        let stemmed = TextOptions::default().set_indexing_options(
+            TextFieldIndexing::default()
+                .set_tokenizer(RECIPE_TOKENIZER)
+                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+        );
+
+        // Title (searchable, stored, boosted at query time)
+        let title = schema_builder.add_text_field("title", stemmed.clone() | STORED);
 
         // Summary (searchable, stored)
-        let summary = schema_builder.add_text_field("summary", TEXT | STORED);
+        let summary = schema_builder.add_text_field("summary", stemmed.clone() | STORED);
 
-        // Instructions (searchable)
-        let instructions = schema_builder.add_text_field("instructions", TEXT);
+        // Instructions (searchable): rendered prose, not raw Cooklang markup
+        let instructions = schema_builder.add_text_field("instructions", stemmed.clone());
 
         // Ingredients (searchable as text, faceted)
-        let ingredients = schema_builder.add_text_field("ingredients", TEXT | STORED);
+        let ingredients = schema_builder.add_text_field("ingredients", stemmed.clone() | STORED);
 
         // Tags (searchable, faceted)
-        let tags = schema_builder.add_text_field("tags", TEXT | STORED);
+        let tags = schema_builder.add_text_field("tags", stemmed | STORED);
 
         // Difficulty (faceted, filterable)
         let difficulty = schema_builder.add_text_field("difficulty", STRING | STORED);
@@ -71,6 +86,20 @@ impl RecipeSchema {
             file_path,
             locale,
         }
+    }
+}
+
+impl RecipeSchema {
+    /// Register the recipe text analyzer on an index. Tantivy stores tokenizer
+    /// *names* in the schema, so this must run every time an index is opened,
+    /// before any document is written or any query parsed.
+    pub fn register_tokenizers(index: &Index) {
+        let analyzer = TextAnalyzer::builder(SimpleTokenizer::default())
+            .filter(RemoveLongFilter::limit(40))
+            .filter(LowerCaser)
+            .filter(Stemmer::new(tantivy::tokenizer::Language::English))
+            .build();
+        index.tokenizers().register(RECIPE_TOKENIZER, analyzer);
     }
 }
 
