@@ -388,6 +388,17 @@ pub async fn update_recipe(pool: &DbPool, recipe_id: i64, update: &UpdateRecipe)
     Ok(recipe)
 }
 
+/// Record a recipe's current content hash (used for duplicate detection)
+pub async fn set_content_hash(pool: &DbPool, recipe_id: i64, content_hash: &str) -> Result<()> {
+    sqlx::query("UPDATE recipes SET content_hash = ? WHERE id = ?")
+        .bind(content_hash)
+        .bind(recipe_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 /// Get or create recipe by feed and external ID
 pub async fn get_or_create_recipe(pool: &DbPool, new_recipe: &NewRecipe) -> Result<(Recipe, bool)> {
     // Try to find existing recipe

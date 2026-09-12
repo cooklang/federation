@@ -3,13 +3,14 @@ use crate::utils::resolve_image_url;
 use crate::{
     db::{
         self,
-        models::{NewFeed, NewGitHubFeed, NewGitHubRecipe, NewRecipe},
+        models::{NewFeed, NewGitHubFeed, NewGitHubRecipe, NewRecipe, UpdateRecipe},
         DbPool,
     },
     indexer::search::SearchIndex,
     Error, Result,
 };
 use futures::stream::{self, StreamExt};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
@@ -174,6 +175,7 @@ impl GitHubIndexer {
             .collect();
 
         let total_recipes = cook_files.len();
+        let cook_paths: Vec<String> = cook_files.iter().map(|(path, _)| path.clone()).collect();
         info!(
             "Found {} .cook files in {}/{} - Processing with concurrency {}",
             total_recipes, github_feed.owner, github_feed.repo_name, self.config.recipe_concurrency
@@ -208,19 +210,38 @@ impl GitHubIndexer {
 
         for result in results {
             match result {
-                Ok(recipe_id) => {
+                Ok(Some(recipe_id)) => {
                     indexed_count += 1;
                     successful_recipe_ids.push(recipe_id);
                 }
+                Ok(None) => {}
                 Err(e) => {
                     warn!("Failed to index recipe: {}", e);
                 }
             }
         }
 
+        // Files that left the repository take their recipes with them.
+        let current_paths: HashSet<&str> = cook_paths.iter().map(String::as_str).collect();
+        let stale: Vec<_> = db::github::list_github_recipes_by_feed(&self.pool, github_feed_id)
+            .await?
+            .into_iter()
+            .filter(|r| !current_paths.contains(r.file_path.as_str()))
+            .collect();
+
         // Batch commit to search index
-        if !successful_recipe_ids.is_empty() {
+        if !successful_recipe_ids.is_empty() || !stale.is_empty() {
             let mut search_writer = self.search_index.writer()?;
+
+            for github_recipe in &stale {
+                info!(
+                    "Removing {}/{}:{}: no longer in the repository",
+                    github_feed.owner, github_feed.repo_name, github_recipe.file_path
+                );
+                self.search_index
+                    .delete_recipe(&mut search_writer, github_recipe.recipe_id)?;
+                db::recipes::delete_recipe(&self.pool, github_recipe.recipe_id).await?;
+            }
 
             for recipe_id in successful_recipe_ids {
                 let recipe = db::recipes::get_recipe(&self.pool, recipe_id).await?;
@@ -255,7 +276,7 @@ impl GitHubIndexer {
             }
 
             // Single commit for all recipes
-            search_writer.commit()?;
+            self.search_index.commit(&mut search_writer)?;
         }
 
         // Update GitHub feed with latest commit SHA
@@ -291,7 +312,7 @@ impl GitHubIndexer {
         file_path: &str,
         file_sha: &str,
         tree_entries: &[crate::github::models::TreeEntry],
-    ) -> Result<i64> {
+    ) -> Result<Option<i64>> {
         debug!("Indexing recipe: {}", file_path);
 
         // Check if recipe already exists with same SHA
@@ -300,28 +321,34 @@ impl GitHubIndexer {
         {
             if existing.file_sha == file_sha {
                 debug!("Recipe {} hasn't changed, skipping", file_path);
-                return Ok(existing.recipe_id);
+                return Ok(Some(existing.recipe_id));
             }
         }
 
         // Download raw content
-        let raw_url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}/{}",
-            github_feed.owner, github_feed.repo_name, github_feed.default_branch, file_path
+        let raw_url = self.config.raw_url(
+            &github_feed.owner,
+            &github_feed.repo_name,
+            &github_feed.default_branch,
+            file_path,
         );
 
         let content = self.client.download_raw_content(&raw_url).await?;
 
-        // Use filename without extension as title
-        let title = file_path
-            .split('/')
-            .next_back()
-            .and_then(|f| f.strip_suffix(".cook"))
-            .unwrap_or(file_path)
-            .to_string();
-
         // Parse Cooklang content to extract metadata
         let parsed = crate::indexer::parse_cooklang_full(&content);
+
+        // A declared `title:` wins; otherwise make something readable out of the
+        // file name.
+        let title = parsed
+            .as_ref()
+            .ok()
+            .and_then(|p| p.metadata.as_ref())
+            .and_then(|m| m.title.as_deref())
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| title_from_path(file_path));
         let (summary, servings, total_time, metadata_image) = if let Ok(ref parsed_data) = parsed {
             // Extract metadata from parsed content
             let summary = None; // Can be enhanced to extract from recipe notes
@@ -363,20 +390,35 @@ impl GitHubIndexer {
             github_feed.owner, github_feed.repo_name, github_feed.default_branch, file_path
         );
 
+        // Content hash identifies the same recipe wherever it lives: a second
+        // path in this repository, a fork, or a mirror feed.
+        let content_hash = db::recipes::calculate_content_hash(&title, Some(&content));
+
         // Create or update recipe
         let recipe_id = if let Some(existing) =
             db::github::get_github_recipe_by_path(&self.pool, github_feed.id, file_path).await?
         {
-            // Update existing recipe
+            // The file changed upstream: refresh everything we derive from it.
             let recipe = db::recipes::get_recipe(&self.pool, existing.recipe_id).await?;
-
-            // Update recipe content (use existing update function if available)
-            // For now, we'll keep the existing recipe and just update the github_recipe SHA
+            let update = UpdateRecipe {
+                title: Some(title.clone()),
+                source_url: Some(html_url.clone()),
+                content: Some(content.clone()),
+                summary,
+                servings,
+                total_time_minutes: total_time,
+                active_time_minutes: recipe.active_time_minutes,
+                difficulty: recipe.difficulty.clone(),
+                image_url,
+                updated_at: None,
+            };
+            db::recipes::update_recipe(&self.pool, recipe.id, &update).await?;
+            db::recipes::set_content_hash(&self.pool, recipe.id, &content_hash).await?;
             db::github::update_github_recipe_sha(&self.pool, existing.id, file_sha).await?;
 
             db::recipes::update_recipe_locale(
                 &self.pool,
-                existing.recipe_id,
+                recipe.id,
                 locale_code.as_deref(),
                 locale_source.as_deref(),
             )
@@ -384,9 +426,21 @@ impl GitHubIndexer {
 
             recipe.id
         } else {
-            // Create new recipe
-            // Calculate content hash for deduplication
-            let content_hash = Some(db::recipes::calculate_content_hash(&title, Some(&content)));
+            if let Some(duplicate) =
+                db::recipes::find_recipe_by_content_hash(&self.pool, &content_hash).await?
+            {
+                info!(
+                    "Skipping {}/{}:{}: identical to recipe {} ({})",
+                    github_feed.owner,
+                    github_feed.repo_name,
+                    file_path,
+                    duplicate.id,
+                    duplicate.title
+                );
+                return Ok(None);
+            }
+
+            let content_hash = Some(content_hash);
 
             let new_recipe = NewRecipe {
                 feed_id: github_feed.feed_id,
@@ -454,7 +508,7 @@ impl GitHubIndexer {
         }
 
         // Return recipe ID for batch search indexing
-        Ok(recipe_id)
+        Ok(Some(recipe_id))
     }
 
     /// Remove a GitHub repository from the federation
@@ -529,5 +583,98 @@ impl GitHubIndexer {
         }
 
         None
+    }
+}
+
+/// A readable title from a recipe's path: the file stem with any leading
+/// `YYYY-MM-DD-` date dropped, separators turned into spaces and each word
+/// capitalised. `recipes/2025-12-01-tiramisu-brownies.cook` becomes
+/// `Tiramisu Brownies`.
+pub fn title_from_path(file_path: &str) -> String {
+    let stem = file_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(file_path)
+        .strip_suffix(".cook")
+        .unwrap_or(file_path);
+
+    let stem = strip_leading_date(stem);
+
+    let words: Vec<String> = stem
+        .split(['-', '_'])
+        .filter(|w| !w.is_empty())
+        .map(capitalize)
+        .collect();
+
+    if words.is_empty() {
+        stem.to_string()
+    } else {
+        words.join(" ")
+    }
+}
+
+fn strip_leading_date(stem: &str) -> &str {
+    let bytes = stem.as_bytes();
+    let is_date = bytes.len() > 11
+        && bytes[..10].iter().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                *b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        })
+        && bytes[10] == b'-';
+    if is_date {
+        &stem[11..]
+    } else {
+        stem
+    }
+}
+
+fn capitalize(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) if word.chars().any(char::is_lowercase) || word.chars().count() == 1 => {
+            first.to_uppercase().collect::<String>() + chars.as_str()
+        }
+        // Leave acronyms and mixed-case words like "BBQ" or "McMuffin" alone.
+        Some(_) => word.to_string(),
+        None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::title_from_path;
+
+    #[test]
+    fn humanizes_dated_slugs() {
+        assert_eq!(
+            title_from_path("recipes/2025-12-01-tiramisu-brownies.cook"),
+            "Tiramisu Brownies"
+        );
+        assert_eq!(
+            title_from_path("2025-12-04-cottage_cheese-gnocchi.cook"),
+            "Cottage Cheese Gnocchi"
+        );
+    }
+
+    #[test]
+    fn keeps_already_readable_names() {
+        assert_eq!(
+            title_from_path("cook/sides/Vegan Caesar Salad.cook"),
+            "Vegan Caesar Salad"
+        );
+        assert_eq!(title_from_path("BBQ Ribs.cook"), "BBQ Ribs");
+        assert_eq!(title_from_path("Pizza.cook"), "Pizza");
+    }
+
+    #[test]
+    fn does_not_mistake_numbers_for_dates() {
+        assert_eq!(title_from_path("2-minute-noodles.cook"), "2 Minute Noodles");
+        assert_eq!(
+            title_from_path("2025-holiday-cookies.cook"),
+            "2025 Holiday Cookies"
+        );
     }
 }

@@ -17,7 +17,16 @@ pub struct GitHubConfig {
 
     /// Recipe processing concurrency (default: 10)
     pub recipe_concurrency: usize,
+
+    /// Base URL of the GitHub REST API (overridable for tests)
+    pub api_base_url: String,
+
+    /// Base URL for raw file downloads (overridable for tests)
+    pub raw_base_url: String,
 }
+
+pub const DEFAULT_API_BASE_URL: &str = "https://api.github.com";
+pub const DEFAULT_RAW_BASE_URL: &str = "https://raw.githubusercontent.com";
 
 impl GitHubConfig {
     /// Create a new GitHubConfig from environment variables
@@ -40,6 +49,8 @@ impl GitHubConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10),
+            api_base_url: DEFAULT_API_BASE_URL.to_string(),
+            raw_base_url: DEFAULT_RAW_BASE_URL.to_string(),
         }
     }
 
@@ -51,7 +62,12 @@ impl GitHubConfig {
 
     /// Get the base API URL
     pub fn api_base_url(&self) -> &str {
-        "https://api.github.com"
+        &self.api_base_url
+    }
+
+    /// URL of a file's raw content on the default branch
+    pub fn raw_url(&self, owner: &str, repo: &str, branch: &str, path: &str) -> String {
+        format!("{}/{owner}/{repo}/{branch}/{path}", self.raw_base_url)
     }
 }
 
@@ -63,6 +79,8 @@ impl Default for GitHubConfig {
             rate_limit_buffer: 500,
             max_file_size_bytes: 1_048_576, // 1MB
             recipe_concurrency: 10,
+            api_base_url: DEFAULT_API_BASE_URL.to_string(),
+            raw_base_url: DEFAULT_RAW_BASE_URL.to_string(),
         }
     }
 }
