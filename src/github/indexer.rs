@@ -609,6 +609,12 @@ pub fn title_from_path(file_path: &str) -> String {
 
     let stem = strip_leading_date(stem);
 
+    // A name with spaces was written for people already; its hyphens are
+    // deliberate ("Sweet-and-Spicy Ketchup").
+    if stem.contains(char::is_whitespace) {
+        return stem.trim().to_string();
+    }
+
     let words: Vec<String> = stem
         .split(['-', '_'])
         .filter(|w| !w.is_empty())
@@ -676,6 +682,22 @@ mod title_tests {
         );
         assert_eq!(title_from_path("BBQ Ribs.cook"), "BBQ Ribs");
         assert_eq!(title_from_path("Pizza.cook"), "Pizza");
+    }
+
+    #[test]
+    fn keeps_hyphens_in_names_that_already_have_spaces() {
+        assert_eq!(
+            title_from_path("Sweet-and-Spicy Ketchup.cook"),
+            "Sweet-and-Spicy Ketchup"
+        );
+        assert_eq!(
+            title_from_path("Gnudi with Tomato-Butter Sauce.cook"),
+            "Gnudi with Tomato-Butter Sauce"
+        );
+        assert_eq!(
+            title_from_path("2025-12-01-Sun-Dried Tomato Pesto.cook"),
+            "Sun-Dried Tomato Pesto"
+        );
     }
 
     #[test]
