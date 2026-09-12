@@ -22,6 +22,10 @@ pub struct GitHubIndexer {
     pool: DbPool,
     search_index: Arc<SearchIndex>,
     config: GitHubConfig,
+    /// Serialises the "is this content already known?" check with the insert
+    /// that follows it. Files are processed concurrently, and without this two
+    /// copies of one recipe both pass the check before either row exists.
+    create_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl GitHubIndexer {
@@ -34,6 +38,7 @@ impl GitHubIndexer {
             pool,
             search_index,
             config,
+            create_lock: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 
@@ -338,17 +343,7 @@ impl GitHubIndexer {
         // Parse Cooklang content to extract metadata
         let parsed = crate::indexer::parse_cooklang_full(&content);
 
-        // A declared `title:` wins; otherwise make something readable out of the
-        // file name.
-        let title = parsed
-            .as_ref()
-            .ok()
-            .and_then(|p| p.metadata.as_ref())
-            .and_then(|m| m.title.as_deref())
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| title_from_path(file_path));
+        let title = recipe_title(parsed.as_ref().ok(), file_path);
         let (summary, servings, total_time, metadata_image) = if let Ok(ref parsed_data) = parsed {
             // Extract metadata from parsed content
             let summary = None; // Can be enhanced to extract from recipe notes
@@ -426,6 +421,8 @@ impl GitHubIndexer {
 
             recipe.id
         } else {
+            let _guard = self.create_lock.lock().await;
+
             if let Some(duplicate) =
                 db::recipes::find_recipe_by_content_hash(&self.pool, &content_hash).await?
             {
@@ -584,6 +581,18 @@ impl GitHubIndexer {
 
         None
     }
+}
+
+/// The title of a GitHub recipe: a declared `title:` wins; otherwise something
+/// readable is made out of the file name.
+pub fn recipe_title(parsed: Option<&crate::indexer::ParsedRecipeData>, file_path: &str) -> String {
+    parsed
+        .and_then(|p| p.metadata.as_ref())
+        .and_then(|m| m.title.as_deref())
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| title_from_path(file_path))
 }
 
 /// A readable title from a recipe's path: the file stem with any leading

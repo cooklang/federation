@@ -63,7 +63,7 @@ impl SearchIndex {
             if index.schema() != schema.schema {
                 return Err(Error::Search(format!(
                     "Search index at {} was built with a different schema and cannot be used. \
-                     Delete it and rebuild: rm -rf {} && federation backfill-locales",
+                     Delete it and rebuild: rm -rf {} && federation backfill-locales --force",
                     path.display(),
                     path.display(),
                 )));

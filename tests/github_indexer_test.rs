@@ -268,11 +268,13 @@ async fn identical_recipe_at_a_second_path_is_indexed_once() {
     let h = Harness::new().await;
     let mut repo = FakeRepo::new("alice", "recipes").await;
     let content = "---\ntitle: Tiramisu Brownies\n---\nLayer @mascarpone{}.\n";
-    repo.set_files(&[
-        ("recipes/tiramisu-brownies.cook", content),
-        ("public/recipes/tiramisu-brownies.cook", content),
-    ])
-    .await;
+    // Many copies, so that concurrent processing cannot slip a duplicate past
+    // the check by luck of timing.
+    let paths: Vec<String> = (0..20)
+        .map(|i| format!("build{i}/recipes/tiramisu-brownies.cook"))
+        .collect();
+    let files: Vec<(&str, &str)> = paths.iter().map(|p| (p.as_str(), content)).collect();
+    repo.set_files(&files).await;
 
     h.indexer(&repo).add_repository(&repo.url()).await.unwrap();
 

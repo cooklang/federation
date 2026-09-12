@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
 use std::path::Path;
-use tracing::warn;
+use tracing::{info, warn};
 
 /// Search for recipes
 pub async fn search(
@@ -565,4 +565,110 @@ struct Pagination {
     _limit: usize,
     total: usize,
     total_pages: usize,
+}
+
+/// What a cleanup pass did.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CleanupStats {
+    /// GitHub recipes whose title was rewritten from their content or file name.
+    pub retitled: usize,
+    /// Recipes deleted because an older recipe had identical content.
+    pub duplicates_removed: usize,
+}
+
+/// Repair recipes indexed by earlier versions of the GitHub indexer.
+///
+/// 1. Every GitHub recipe gets the title the current indexer would give it: the
+///    declared `title:` metadata, else a humanized file name. Feed recipes keep
+///    the title their feed supplied.
+/// 2. Recipes sharing a content hash are collapsed onto the oldest one; the rest
+///    are deleted from the database and the search index. Titles are fixed first
+///    so that copies of one file that only differed by path collapse too.
+///
+/// Safe to rerun: a second pass finds nothing to do.
+pub async fn cleanup_recipes(
+    pool: &crate::db::DbPool,
+    search_index: &crate::indexer::search::SearchIndex,
+) -> Result<CleanupStats> {
+    use crate::db::models::{GitHubRecipe, Recipe};
+    use crate::github::indexer::recipe_title;
+
+    let mut stats = CleanupStats::default();
+    let mut writer = search_index.writer()?;
+
+    let github_recipes: Vec<GitHubRecipe> =
+        sqlx::query_as("SELECT * FROM github_recipes ORDER BY id")
+            .fetch_all(pool)
+            .await?;
+
+    for github_recipe in github_recipes {
+        let recipe: Option<Recipe> = sqlx::query_as("SELECT * FROM recipes WHERE id = ?")
+            .bind(github_recipe.recipe_id)
+            .fetch_optional(pool)
+            .await?;
+        let Some(recipe) = recipe else { continue };
+        let Some(content) = recipe.content.as_deref() else {
+            continue;
+        };
+
+        let parsed = crate::indexer::parse_cooklang_full(content).ok();
+        let title = recipe_title(parsed.as_ref(), &github_recipe.file_path);
+        if title == recipe.title {
+            continue;
+        }
+
+        info!(
+            "Recipe {}: retitling {:?} -> {:?}",
+            recipe.id, recipe.title, title
+        );
+        let content_hash = crate::db::recipes::calculate_content_hash(&title, Some(content));
+        sqlx::query("UPDATE recipes SET title = ?, content_hash = ?, updated_at = ? WHERE id = ?")
+            .bind(&title)
+            .bind(&content_hash)
+            .bind(chrono::Utc::now())
+            .bind(recipe.id)
+            .execute(pool)
+            .await?;
+
+        let recipe = crate::db::recipes::get_recipe(pool, recipe.id).await?;
+        let tags = crate::db::tags::get_tags_for_recipe(pool, recipe.id).await?;
+        let ingredients = crate::db::ingredients::get_ingredients_for_recipe(pool, recipe.id)
+            .await?
+            .iter()
+            .map(|i| i.name.clone())
+            .collect::<Vec<_>>();
+        search_index.index_recipe(
+            &mut writer,
+            &recipe,
+            Some(&github_recipe.file_path),
+            &tags,
+            &ingredients,
+        )?;
+        stats.retitled += 1;
+    }
+
+    let duplicated_hashes: Vec<String> = sqlx::query_scalar(
+        "SELECT content_hash FROM recipes WHERE content_hash IS NOT NULL \
+         GROUP BY content_hash HAVING COUNT(*) > 1",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for hash in duplicated_hashes {
+        let mut copies = crate::db::recipes::find_duplicate_recipes(pool, &hash).await?;
+        copies.sort_by_key(|r| (r.created_at, r.id));
+        let keep = copies.remove(0);
+        for copy in copies {
+            info!(
+                "Recipe {} ({:?}) duplicates recipe {}: deleting",
+                copy.id, copy.title, keep.id
+            );
+            search_index.delete_recipe(&mut writer, copy.id)?;
+            crate::db::recipes::delete_recipe(pool, copy.id).await?;
+            stats.duplicates_removed += 1;
+        }
+    }
+
+    search_index.commit(&mut writer)?;
+    Ok(stats)
 }

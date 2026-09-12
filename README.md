@@ -167,6 +167,17 @@ cargo run -- backfill-locales
 cargo run -- backfill-locales --force
 ```
 
+### Clean up recipes
+
+Fix titles of GitHub recipes indexed by earlier versions (declared `title:`
+metadata, else a readable version of the file name) and delete recipes whose
+content duplicates an older one (the same file at two paths, a fork, a mirror
+feed). The search index is updated in step. Safe to rerun.
+
+```bash
+cargo run -- cleanup
+```
+
 ## API Endpoints
 
 ### Health & Status
@@ -175,7 +186,9 @@ cargo run -- backfill-locales --force
 - `GET /api/stats` - System statistics
 
 ### Search
-- `GET /api/search?q=<query>` - Search recipes with unified query syntax
+- `GET /api/search?q=<query>` - Search recipes with unified query syntax. Every
+  term must match (`vegan tags:dessert` is vegan **and** dessert); use `OR` for
+  alternatives and `-` to exclude. Words are stemmed, so `cake` finds "cakes".
   - `locale` (optional) - Filter to a single language, e.g. `locale=de`. Filtering
     by a base language (`en`) also matches its regional variants (`en-US`).
   - Examples:
@@ -217,6 +230,22 @@ Environment variables (see `.env.example`):
 
 ## Upgrading
 
+### Search quality release (search index rebuild required)
+
+The text analyzer changed (stemming, plain-text instructions), which changes
+the Tantivy schema. Delete the index, rebuild it, then repair recipes indexed
+by the previous GitHub indexer:
+
+```bash
+rm -rf data/index   # or your configured INDEX_PATH
+federation backfill-locales --force
+federation cleanup
+```
+
+`--force` re-indexes every recipe, not only those without a locale. `cleanup`
+rewrites slug-style titles from the recipes' own metadata and removes
+duplicate recipes, and keeps the index in step.
+
 ### Recipe locale field (search index rebuild required)
 
 This release adds a `locale` field to the Tantivy search schema (used to tag
@@ -229,12 +258,13 @@ Before deploying this version, delete the existing index and rebuild it:
 
 ```bash
 rm -rf data/index   # or your configured INDEX_PATH
-federation backfill-locales
+federation backfill-locales --force
 ```
 
 `backfill-locales` runs pending database migrations and re-indexes every
-recipe it touches, so this single command rebuilds the search index and
-backfills locales in one step. Run it before starting `serve` again.
+recipe it touches; with `--force` that is every recipe, so this single command
+rebuilds the search index and backfills locales in one step. Run it before
+starting `serve` again.
 
 ## Production Build
 

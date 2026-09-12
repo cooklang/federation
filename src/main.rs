@@ -63,6 +63,9 @@ async fn main() -> Result<()> {
         Commands::BackfillLocales { force } => {
             backfill_locales(settings, force).await?;
         }
+        Commands::Cleanup => {
+            cleanup(settings).await?;
+        }
     }
 
     Ok(())
@@ -295,6 +298,25 @@ async fn reindex_feed(settings: Settings, url: String) -> Result<()> {
     println!(
         "\x1b[32m\u{2713}\x1b[0m Reindex complete: {} new recipes indexed",
         result.new_recipes
+    );
+
+    Ok(())
+}
+
+async fn cleanup(settings: Settings) -> Result<()> {
+    info!("Cleaning up recipes");
+
+    let pool = db::init_pool(&settings.database.url).await?;
+    db::run_migrations(&pool).await?;
+
+    let index_path = std::path::PathBuf::from(&settings.search.index_path);
+    let search_index = SearchIndex::new(&index_path)?;
+
+    let stats = federation::cli::commands::cleanup_recipes(&pool, &search_index).await?;
+
+    println!(
+        "\x1b[32m\u{2713}\x1b[0m Cleanup complete: {} recipes retitled, {} duplicates removed",
+        stats.retitled, stats.duplicates_removed
     );
 
     Ok(())

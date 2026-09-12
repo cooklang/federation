@@ -82,4 +82,7 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Fix titles of GitHub recipes and remove duplicate recipes
+    Cleanup,
 }
