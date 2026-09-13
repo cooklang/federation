@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+@layer base {
+  /* Long inline code (URLs, paths) must be able to wrap on narrow screens */
+  :not(pre) > code {
+    overflow-wrap: anywhere;
+  }
+}
+
 /* Custom component classes */
 @layer components {
   .btn-primary {
@@ -18,8 +25,10 @@
     @apply bg-white rounded-lg shadow-md p-6 transition-all duration-200;
   }
 
-  .recipe-card:hover {
-    @apply transform -translate-y-1 shadow-lg;
+  @media (hover: hover) {
+    .recipe-card:hover {
+      @apply transform -translate-y-1 shadow-lg;
+    }
   }
 }
 

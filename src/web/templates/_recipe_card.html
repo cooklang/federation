@@ -1,0 +1,40 @@
+<a href="/recipes/{{ recipe.id }}" class="recipe-card bg-white rounded-lg shadow-md overflow-hidden block">
+    {% if !recipe.image_url.is_empty() %}
+    <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="w-full h-40 sm:h-48 object-cover" loading="lazy">
+    {% else %}
+    <div class="w-full h-40 sm:h-48 bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center">
+        <span class="text-6xl">🍳</span>
+    </div>
+    {% endif %}
+
+    <div class="p-4">
+        <h3 class="text-lg sm:text-xl font-semibold text-gray-900 mb-2">{{ recipe.title }}</h3>
+
+        {% if !recipe.summary.is_empty() %}
+        <p class="text-gray-600 text-sm mb-3 line-clamp-2">{{ recipe.summary }}</p>
+        {% endif %}
+
+        {% if !recipe.tags.is_empty() %}
+        <div class="flex flex-wrap gap-2 mb-3">
+            {% for tag in recipe.tags %}
+            <span class="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">{{ tag }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+            {% if !recipe.total_time_minutes.is_empty() %}
+            <span>⏱️ {{ recipe.total_time_minutes }}m</span>
+            {% endif %}
+            {% if !recipe.servings.is_empty() %}
+            <span>👥 {{ recipe.servings }}</span>
+            {% endif %}
+            {% if !recipe.difficulty.is_empty() %}
+            <span>📊 {{ recipe.difficulty }}</span>
+            {% endif %}
+            {% if !recipe.locale_name.is_empty() %}
+            <span>🗣️ {{ recipe.locale_name }}</span>
+            {% endif %}
+        </div>
+    </div>
+</a>

@@ -3,7 +3,7 @@
 {% block title %}Validate Feed - Cooklang Federation{% endblock %}
 
 {% block content %}
-<div class="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<div class="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
     <h1 class="text-3xl font-bold text-gray-900 mb-6">Validate Feed</h1>
 
     <p class="text-gray-600 mb-6">
@@ -12,13 +12,13 @@
 
     <!-- Validation Form -->
     <form method="get" action="/validate" class="mb-8">
-        <div class="flex gap-3">
+        <div class="flex flex-col sm:flex-row gap-3">
             <input
                 type="url"
                 name="url"
                 value="{{ url }}"
                 placeholder="https://example.com/feed.xml"
-                class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
+                class="w-full min-w-0 sm:flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
                 required
             >
             <button

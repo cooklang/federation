@@ -23,9 +23,9 @@
             <div class="flex justify-between h-16">
                 <div class="flex">
                     <div class="flex-shrink-0 flex items-center">
-                        <a href="/" class="flex items-center gap-3">
-                            <img src="/static/images/logo.png" alt="Cooklang Federation" class="h-10 w-10">
-                            <span class="text-2xl font-bold text-orange-600">Cooklang Federation</span>
+                        <a href="/" class="flex items-center gap-2 sm:gap-3">
+                            <img src="/static/images/logo.png" alt="Cooklang Federation" class="h-9 w-9 sm:h-10 sm:w-10">
+                            <span class="text-xl sm:text-2xl font-bold text-orange-600 whitespace-nowrap">Cooklang Federation</span>
                         </a>
                     </div>
                     <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
@@ -46,7 +46,7 @@
                 <div class="flex items-center gap-4">
                     <a href="/api/stats" class="hidden sm:inline text-sm text-gray-500 hover:text-gray-700">API</a>
                     <!-- Mobile menu button -->
-                    <button id="mobile-menu-button" class="sm:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-orange-500">
+                    <button id="mobile-menu-button" class="sm:hidden -mr-2 inline-flex items-center justify-center p-2.5 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-orange-500">
                         <span class="sr-only">Open main menu</span>
                         <!-- Hamburger icon -->
                         <svg class="block h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -62,19 +62,19 @@
             <!-- Mobile menu -->
             <div id="mobile-menu" class="hidden sm:hidden">
                 <div class="pt-2 pb-3 space-y-1">
-                    <a href="/" data-nav-mobile="search" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                    <a href="/" data-nav-mobile="search" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-3 border-l-4 text-base font-medium">
                         Search
                     </a>
-                    <a href="/browse" data-nav-mobile="browse" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                    <a href="/browse" data-nav-mobile="browse" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-3 border-l-4 text-base font-medium">
                         Browse
                     </a>
-                    <a href="/feeds" data-nav-mobile="feeds" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                    <a href="/feeds" data-nav-mobile="feeds" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-3 border-l-4 text-base font-medium">
                         Feeds
                     </a>
-                    <a href="/about" data-nav-mobile="about" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                    <a href="/about" data-nav-mobile="about" class="nav-link-mobile border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-3 border-l-4 text-base font-medium">
                         About
                     </a>
-                    <a href="/api/stats" class="border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-2 border-l-4 text-base font-medium">
+                    <a href="/api/stats" class="border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700 block pl-3 pr-4 py-3 border-l-4 text-base font-medium">
                         API
                     </a>
                 </div>

@@ -6,48 +6,60 @@
 <meta name="description" content="Search thousands of community Cooklang recipes — plain-text .cook files people actually cook from, hosted in their own repositories and indexed here.">
 {% endblock %}
 
+{% macro search_tips() %}
+Search by field using <code class="bg-gray-100 px-1 rounded">tags:</code>, <code class="bg-gray-100 px-1 rounded">title:</code>, <code class="bg-gray-100 px-1 rounded">ingredients:</code>, or <code class="bg-gray-100 px-1 rounded">total_time:</code>. Every term must match; use <code class="bg-gray-100 px-1 rounded">OR</code> for alternatives, exclude with <code class="bg-gray-100 px-1 rounded">-</code>, use ranges like <code class="bg-gray-100 px-1 rounded">[0 TO 30]</code>, and quotes for multi-word values.
+{% endmacro %}
+
 {% block content %}
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
     <!-- Search Header -->
-    <div class="text-center mb-8">
-        <h1 class="text-4xl font-bold text-gray-900 mb-2">Discover Recipes</h1>
+    <div class="text-center mb-6 sm:mb-8">
+        <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">Discover Recipes</h1>
         <p class="text-gray-600">Search across federated recipe collections</p>
     </div>
 
     <!-- Search Form -->
-    <div id="search-container" class="bg-white rounded-lg shadow-md p-6 mb-8">
+    <div id="search-container" class="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6 sm:mb-8">
         <form method="GET" action="/">
-            <div class="flex gap-2">
+            <div class="flex flex-col sm:flex-row gap-2">
                 <input
                     id="search-input"
-                    type="text"
+                    type="search"
                     name="q"
                     value="{{ query }}"
                     placeholder="Search query"
-                    class="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    class="w-full min-w-0 sm:flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 >
-                {% if !locales.is_empty() %}
-                <select
-                    id="locale-select"
-                    name="locale"
-                    class="px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                    aria-label="Filter by language"
-                >
-                    <option value="">All languages</option>
-                    {% for option in locales %}
-                    <option value="{{ option.code }}"{% if option.code == locale %} selected{% endif %}>{{ option.name }} ({{ option.count }})</option>
-                    {% endfor %}
-                </select>
-                {% endif %}
-                <button
-                    type="submit"
-                    class="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
-                >
-                    Search
-                </button>
+                <!-- On phones the select and button share one row under the input;
+                     from `sm` up this wrapper dissolves and they join the main row. -->
+                <div class="flex gap-2 sm:contents">
+                    {% if !locales.is_empty() %}
+                    <select
+                        id="locale-select"
+                        name="locale"
+                        class="flex-1 min-w-0 sm:flex-none px-3 sm:px-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        aria-label="Filter by language"
+                    >
+                        <option value="">All languages</option>
+                        {% for option in locales %}
+                        <option value="{{ option.code }}"{% if option.code == locale %} selected{% endif %}>{{ option.name }} ({{ option.count }})</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
+                    <button
+                        type="submit"
+                        class="flex-1 sm:flex-none shrink-0 px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                    >
+                        Search
+                    </button>
+                </div>
             </div>
-            <p class="mt-2 px-4 text-xs text-gray-500">
-                Search by field using <code class="bg-gray-100 px-1 rounded">tags:</code>, <code class="bg-gray-100 px-1 rounded">title:</code>, <code class="bg-gray-100 px-1 rounded">ingredients:</code>, or <code class="bg-gray-100 px-1 rounded">total_time:</code>. Every term must match; use <code class="bg-gray-100 px-1 rounded">OR</code> for alternatives, exclude with <code class="bg-gray-100 px-1 rounded">-</code>, use ranges like <code class="bg-gray-100 px-1 rounded">[0 TO 30]</code>, and quotes for multi-word values.
+            <details class="sm:hidden mt-3 text-xs text-gray-500">
+                <summary class="cursor-pointer select-none text-orange-700 font-medium">Search tips</summary>
+                <p class="mt-2 leading-relaxed">{% call search_tips() %}</p>
+            </details>
+            <p class="hidden sm:block mt-2 px-4 text-xs text-gray-500">
+                {% call search_tips() %}
             </p>
         </form>
     </div>
@@ -58,52 +70,15 @@
         <p class="text-gray-600">Found {{ total }} recipes (page {{ page }} of {{ total_pages }})</p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
         {% for recipe in results %}
-        <a href="/recipes/{{ recipe.id }}" class="recipe-card bg-white rounded-lg shadow-md overflow-hidden block">
-            {% if !recipe.image_url.is_empty() %}
-            <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="w-full h-48 object-cover">
-            {% else %}
-            <div class="w-full h-48 bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center">
-                <span class="text-6xl">🍳</span>
-            </div>
-            {% endif %}
-
-            <div class="p-4">
-                <h3 class="text-xl font-semibold text-gray-900 mb-2">{{ recipe.title }}</h3>
-
-                {% if !recipe.summary.is_empty() %}
-                <p class="text-gray-600 text-sm mb-3 line-clamp-2">{{ recipe.summary }}</p>
-                {% endif %}
-
-                <div class="flex flex-wrap gap-2 mb-3">
-                    {% for tag in recipe.tags %}
-                    <span class="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">{{ tag }}</span>
-                    {% endfor %}
-                </div>
-
-                <div class="flex items-center text-sm text-gray-500 space-x-4">
-                    {% if !recipe.total_time_minutes.is_empty() %}
-                    <span>⏱️ {{ recipe.total_time_minutes }}m</span>
-                    {% endif %}
-                    {% if !recipe.servings.is_empty() %}
-                    <span>👥 {{ recipe.servings }}</span>
-                    {% endif %}
-                    {% if !recipe.difficulty.is_empty() %}
-                    <span>📊 {{ recipe.difficulty }}</span>
-                    {% endif %}
-                    {% if !recipe.locale_name.is_empty() %}
-                    <span>🗣️ {{ recipe.locale_name }}</span>
-                    {% endif %}
-                </div>
-            </div>
-        </a>
+        {% include "_recipe_card.html" %}
         {% endfor %}
     </div>
 
     <!-- Pagination -->
     {% if total_pages > 1 %}
-    <div class="flex justify-center space-x-2">
+    <div class="flex flex-wrap justify-center gap-2">
         {% if page > 1 %}
         <a href="?q={{ query }}&locale={{ locale }}&page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Previous
@@ -123,7 +98,7 @@
     {% endif %}
 
     {% else %}
-    <div class="text-center py-12">
+    <div class="text-center py-8 sm:py-12">
         <div class="text-6xl mb-4">🔍</div>
         {% if query.is_empty() && locale.is_empty() %}
         <p class="text-gray-600 text-lg">Enter a search query above to find recipes</p>
@@ -135,51 +110,14 @@
 
     <!-- Recently Indexed Section -->
     {% if !recent_recipes.is_empty() %}
-    <div class="mt-12">
-        <div class="flex justify-between items-center mb-6">
+    <div class="mt-8 sm:mt-12">
+        <div class="flex flex-wrap justify-between items-baseline gap-2 mb-6">
             <h2 class="text-2xl font-bold text-gray-900">Recently Indexed</h2>
             <a href="/browse" class="text-orange-600 hover:text-orange-700 font-medium">View all recipes →</a>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {% for recipe in recent_recipes %}
-            <a href="/recipes/{{ recipe.id }}" class="recipe-card bg-white rounded-lg shadow-md overflow-hidden block">
-                {% if !recipe.image_url.is_empty() %}
-                <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="w-full h-48 object-cover">
-                {% else %}
-                <div class="w-full h-48 bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center">
-                    <span class="text-6xl">🍳</span>
-                </div>
-                {% endif %}
-
-                <div class="p-4">
-                    <h3 class="text-xl font-semibold text-gray-900 mb-2">{{ recipe.title }}</h3>
-
-                    {% if !recipe.summary.is_empty() %}
-                    <p class="text-gray-600 text-sm mb-3 line-clamp-2">{{ recipe.summary }}</p>
-                    {% endif %}
-
-                    <div class="flex flex-wrap gap-2 mb-3">
-                        {% for tag in recipe.tags %}
-                        <span class="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">{{ tag }}</span>
-                        {% endfor %}
-                    </div>
-
-                    <div class="flex items-center text-sm text-gray-500 space-x-4">
-                        {% if !recipe.total_time_minutes.is_empty() %}
-                        <span>⏱️ {{ recipe.total_time_minutes }}m</span>
-                        {% endif %}
-                        {% if !recipe.servings.is_empty() %}
-                        <span>👥 {{ recipe.servings }}</span>
-                        {% endif %}
-                        {% if !recipe.difficulty.is_empty() %}
-                        <span>📊 {{ recipe.difficulty }}</span>
-                        {% endif %}
-                        {% if !recipe.locale_name.is_empty() %}
-                        <span>🗣️ {{ recipe.locale_name }}</span>
-                        {% endif %}
-                    </div>
-                </div>
-            </a>
+            {% include "_recipe_card.html" %}
             {% endfor %}
         </div>
     </div>

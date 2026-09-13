@@ -7,58 +7,24 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
     <!-- Page Header -->
-    <div class="text-center mb-8">
-        <h1 class="text-4xl font-bold text-gray-900 mb-2">All Recipes</h1>
+    <div class="text-center mb-6 sm:mb-8">
+        <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">All Recipes</h1>
         <p class="text-gray-600">{{ total }} recipes available</p>
     </div>
 
     <!-- Recipe Grid -->
     {% if !recipes.is_empty() %}
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8">
         {% for recipe in recipes %}
-        <a href="/recipes/{{ recipe.id }}" class="recipe-card bg-white rounded-lg shadow-md overflow-hidden block">
-            {% if !recipe.image_url.is_empty() %}
-            <img src="{{ recipe.image_url }}" alt="{{ recipe.title }}" class="w-full h-48 object-cover">
-            {% else %}
-            <div class="w-full h-48 bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center">
-                <span class="text-6xl">🍳</span>
-            </div>
-            {% endif %}
-
-            <div class="p-4">
-                <h3 class="text-xl font-semibold text-gray-900 mb-2">{{ recipe.title }}</h3>
-
-                {% if !recipe.summary.is_empty() %}
-                <p class="text-gray-600 text-sm mb-3 line-clamp-2">{{ recipe.summary }}</p>
-                {% endif %}
-
-                <div class="flex flex-wrap gap-2 mb-3">
-                    {% for tag in recipe.tags %}
-                    <span class="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">{{ tag }}</span>
-                    {% endfor %}
-                </div>
-
-                <div class="flex items-center text-sm text-gray-500 space-x-4">
-                    {% if !recipe.total_time_minutes.is_empty() %}
-                    <span>⏱️ {{ recipe.total_time_minutes }}m</span>
-                    {% endif %}
-                    {% if !recipe.servings.is_empty() %}
-                    <span>👥 {{ recipe.servings }}</span>
-                    {% endif %}
-                    {% if !recipe.difficulty.is_empty() %}
-                    <span>📊 {{ recipe.difficulty }}</span>
-                    {% endif %}
-                </div>
-            </div>
-        </a>
+        {% include "_recipe_card.html" %}
         {% endfor %}
     </div>
 
     <!-- Pagination -->
     {% if total_pages > 1 %}
-    <div class="flex justify-center space-x-2">
+    <div class="flex flex-wrap justify-center gap-2">
         {% if page > 1 %}
         <a href="?page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Previous
