@@ -687,4 +687,91 @@ mod tests {
         // appears in the dropdown on its own.
         assert!(!body.contains(r#"value="en-US""#));
     }
+
+    #[tokio::test]
+    async fn website_search_applies_filters_and_echoes_them_in_the_form() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        let (status, html) = get_text(&state, "/?tags=dinner&max_time=30").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains("Quick Garlic Pasta"));
+        assert!(!html.contains("Slow Garlic Stew"));
+        assert!(html.contains(r#"name="tags" value="dinner""#));
+        assert!(html.contains(r#"<option value="30" selected>"#));
+        assert!(html.contains("Clear filters"));
+    }
+
+    #[tokio::test]
+    async fn website_language_dropdown_lists_languages() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        let (status, html) = get_text(&state, "/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains("English (2)"));
+    }
+
+    #[tokio::test]
+    async fn website_pagination_links_keep_url_encoded_filters() {
+        let (mut state, _index_dir) = create_test_state().await;
+        state.settings.pagination.web_default_limit = 1;
+        seed_search_fixture(&state).await;
+
+        let (status, html) = get_text(&state, "/?q=garlic&tags=dinner&sort=newest").await;
+        assert_eq!(status, StatusCode::OK);
+        // Askama HTML-escapes the `&` separators of the interpolated query.
+        assert!(
+            html.contains("?q=garlic&amp;tags=dinner&amp;sort=newest&page=2"),
+            "{html}"
+        );
+
+        // The second page itself loads with the filters applied.
+        let (status, html) = get_text(&state, "/?q=garlic&tags=dinner&sort=newest&page=2").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains("page 2 of 2"), "{html}");
+
+        // Values are URL-encoded in links and HTML-escaped in the form.
+        let (_, html) = get_text(&state, "/?q=garlic&exclude_ingredients=a%26b%20c").await;
+        assert!(
+            html.contains(r#"name="exclude_ingredients" value="a&amp;b c""#),
+            "{html}"
+        );
+        assert!(
+            html.contains("?q=garlic&amp;exclude_ingredients=a%26b%20c&page=2"),
+            "{html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn website_invalid_filter_renders_the_form_with_an_inline_error() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        let (status, html) =
+            get_text(&state, "/?q=pasta&tags=%3Cb%3Edinner&min_servings=lots").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(html.contains(r#"id="search-error""#), "{html}");
+        assert!(html.contains("min_servings must be a non-negative whole number"));
+        // The user's input is kept, escaped.
+        assert!(html.contains(r#"name="q""#));
+        assert!(html.contains(r#"value="pasta""#));
+        assert!(html.contains(r#"name="tags" value="&lt;b&gt;dinner""#));
+        assert!(!html.contains("<b>dinner"));
+        // An HTML page, not the API's JSON error body.
+        assert!(!html.trim_start().starts_with('{'));
+    }
+
+    #[tokio::test]
+    async fn website_malformed_query_renders_the_form_with_an_inline_error() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        let (status, html) = get_text(&state, "/?q=nosuchfield:pasta").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(html.contains(r#"id="search-error""#), "{html}");
+        assert!(html.contains("Invalid query"));
+        assert!(html.contains(r#"value="nosuchfield:pasta""#));
+        assert!(!html.contains("No recipes found"));
+    }
 }
