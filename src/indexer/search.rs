@@ -21,6 +21,34 @@ pub struct SearchIndex {
     index: Index,
     reader: IndexReader,
     schema: RecipeSchema,
+    /// Serialises writers inside this process. Tantivy allows one writer per
+    /// index; without this gate a second caller (crawler vs GitHub indexer)
+    /// fails with a lock error instead of waiting its turn.
+    writer_gate: tokio::sync::Mutex<()>,
+}
+
+/// An index writer that holds the in-process writer gate until dropped.
+/// Derefs to [`IndexWriter`], so `&mut locked` can be passed wherever
+/// `&mut IndexWriter` is expected.
+pub struct LockedWriter<'a> {
+    // Declared first: fields drop in order, so the writer (and Tantivy's lock
+    // file) is released before the gate lets the next writer in.
+    writer: IndexWriter,
+    _gate: tokio::sync::MutexGuard<'a, ()>,
+}
+
+impl std::ops::Deref for LockedWriter<'_> {
+    type Target = IndexWriter;
+
+    fn deref(&self) -> &IndexWriter {
+        &self.writer
+    }
+}
+
+impl std::ops::DerefMut for LockedWriter<'_> {
+    fn deref_mut(&mut self) -> &mut IndexWriter {
+        &mut self.writer
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +129,7 @@ impl SearchIndex {
             index,
             reader,
             schema,
+            writer_gate: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -109,6 +138,18 @@ impl SearchIndex {
         self.index
             .writer(50_000_000) // 50MB buffer
             .map_err(|e| Error::Search(format!("Failed to create writer: {e}")))
+    }
+
+    /// Get an index writer, waiting for any other writer in this process to
+    /// finish. Long-running server tasks (crawler, GitHub indexer) must use
+    /// this; one-shot CLI commands may use [`Self::writer`] directly.
+    pub async fn locked_writer(&self) -> Result<LockedWriter<'_>> {
+        let gate = self.writer_gate.lock().await;
+        let writer = self.writer()?;
+        Ok(LockedWriter {
+            writer,
+            _gate: gate,
+        })
     }
 
     /// Index a recipe with everything a search document carries: the row's own
