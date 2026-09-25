@@ -340,8 +340,8 @@ async fn backfill_locales(settings: Settings, force: bool) -> Result<()> {
     let stats = federation::cli::commands::backfill_locales(&pool, &search_index, force).await?;
 
     println!(
-        "\x1b[32m\u{2713}\x1b[0m Backfill complete: {} scanned, {} tagged, {} left without a locale, {} given servings/time/difficulty from metadata",
-        stats.scanned, stats.updated, stats.skipped, stats.facts_filled
+        "\x1b[32m\u{2713}\x1b[0m Backfill complete: {} scanned, {} tagged, {} left without a locale, {} given servings/time/difficulty from metadata, {} given ingredient lists",
+        stats.scanned, stats.updated, stats.skipped, stats.facts_filled, stats.ingredients_filled
     );
 
     Ok(())

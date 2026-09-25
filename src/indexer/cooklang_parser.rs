@@ -20,6 +20,20 @@ pub struct ParsedRecipeData {
     pub facts: RecipeFacts,
 }
 
+impl ParsedRecipeData {
+    /// The recipe's ingredients as rows for the `recipe_ingredients` table.
+    pub fn ingredient_rows(&self) -> Vec<crate::db::models::RecipeIngredient> {
+        self.ingredients
+            .iter()
+            .map(|ingredient| crate::db::models::RecipeIngredient {
+                name: ingredient.name.clone(),
+                quantity: ingredient.quantity_value,
+                unit: ingredient.unit.clone(),
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecipeMetadata {
     pub tags: Vec<String>,

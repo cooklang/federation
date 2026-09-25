@@ -170,6 +170,22 @@ pub async fn set_recipe_ingredients(
     Ok(())
 }
 
+/// Store the ingredients of a recipe's parsed Cooklang content, replacing the
+/// ones stored for it. Content that lists no ingredients leaves the stored
+/// ones as they are. Shared by the GitHub indexer and the feed crawler so
+/// both fill the ingredient filters the same way.
+pub async fn store_parsed_ingredients(
+    pool: &DbPool,
+    recipe_id: i64,
+    parsed: &crate::indexer::ParsedRecipeData,
+) -> Result<()> {
+    let ingredients = parsed.ingredient_rows();
+    if !ingredients.is_empty() {
+        set_recipe_ingredients(pool, recipe_id, &ingredients).await?;
+    }
+    Ok(())
+}
+
 /// Delete ingredients that aren't associated with any recipes
 pub async fn delete_unused_ingredients(pool: &DbPool) -> Result<i64> {
     let result = sqlx::query(

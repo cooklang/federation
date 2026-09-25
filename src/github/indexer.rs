@@ -466,21 +466,7 @@ impl GitHubIndexer {
 
         // Extract and store ingredients, cookware, and tags from parsed content
         if let Ok(parsed_data) = parsed {
-            // Store ingredients
-            let ingredients: Vec<crate::db::models::RecipeIngredient> = parsed_data
-                .ingredients
-                .iter()
-                .map(|ing| crate::db::models::RecipeIngredient {
-                    name: ing.name.clone(),
-                    quantity: ing.quantity_value,
-                    unit: ing.unit.clone(),
-                })
-                .collect();
-
-            if !ingredients.is_empty() {
-                db::ingredients::set_recipe_ingredients(&self.pool, recipe_id, &ingredients)
-                    .await?;
-            }
+            db::ingredients::store_parsed_ingredients(&self.pool, recipe_id, &parsed_data).await?;
 
             // Store metadata tags from recipe
             if let Some(metadata) = &parsed_data.metadata {

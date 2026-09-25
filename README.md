@@ -272,8 +272,10 @@ docker compose up -d app
 ```
 
 `backfill-locales --force` is the full rebuild: it re-indexes every recipe with
-its tags, ingredients and feed title, and fills missing servings, total time
-and difficulty from the recipe's Cooklang metadata. (`federation reindex <url>` is a
+its tags, ingredients and feed title, fills missing servings, total time
+and difficulty from the recipe's Cooklang metadata, and fills the ingredient
+list of every recipe that has none stored from its Cooklang content (recipes
+that already have ingredients keep them). (`federation reindex <url>` is a
 different command: it deletes one feed's recipes from the database and
 re-crawls that feed, and it does not rebuild the search index.) Recipes with
 no stored content are not indexed by the rebuild and will not appear in
@@ -300,6 +302,15 @@ Other behaviour changes:
   database and indexes them. No re-crawl is needed. A re-crawl would not
   help anyway, because the GitHub indexer skips files whose SHA has not
   changed.
+- **Feed recipes store their ingredients.** Before, only GitHub recipes had
+  an ingredient list, so the `include_ingredients`/`exclude_ingredients`
+  filters silently ignored feed recipes (`exclude_ingredients=peanut` still
+  returned feed recipes with peanuts). The crawler now stores ingredients
+  from each `.cook` file the same way the GitHub indexer does, and keeps the
+  stored list when an updated file fails to parse. Existing feed recipes get
+  their ingredient lists from the full rebuild above: `backfill-locales
+  --force` fills them from each recipe's stored content, writes them to the
+  database and indexes them. No re-crawl is needed.
 - **Rate limiting is per client and matches `API_RATE_LIMIT`.** It used to be
   one bucket for everyone that refilled one request every `API_RATE_LIMIT`
   seconds. Now each client gets `API_RATE_LIMIT` requests per second with

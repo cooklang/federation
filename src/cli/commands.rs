@@ -407,6 +407,9 @@ pub struct BackfillStats {
     /// Recipes whose empty servings, total time or difficulty were filled
     /// from their Cooklang metadata.
     pub facts_filled: usize,
+    /// Recipes with no stored ingredients whose ingredient list was filled
+    /// from their Cooklang content.
+    pub ingredients_filled: usize,
 }
 
 /// Detect and store locales for recipes that don't have one.
@@ -428,12 +431,17 @@ pub struct BackfillStats {
 /// recipe's Cooklang metadata, indexed, and written after the same commit.
 /// Stored values are never overwritten. If the process dies before the write,
 /// a `--force` rerun fills them again.
+///
+/// Likewise, a recipe with no stored ingredients gets the ingredient list of
+/// its Cooklang content (indexed, then written after the commit), so the
+/// ingredient filters apply to feed recipes crawled before the crawler stored
+/// ingredients. A recipe that already has ingredients keeps them.
 pub async fn backfill_locales(
     pool: &crate::db::DbPool,
     search_index: &crate::indexer::search::SearchIndex,
     force: bool,
 ) -> Result<BackfillStats> {
-    use crate::db::models::Recipe;
+    use crate::db::models::{Recipe, RecipeIngredient};
     use crate::indexer::locale::RecipeLocale;
     use crate::indexer::recipe_facts::RecipeFacts;
 
@@ -469,6 +477,8 @@ pub async fn backfill_locales(
         let mut resolved: Vec<(i64, Option<RecipeLocale>)> = Vec::new();
         // Facts filled per recipe in this batch, written after the commit too.
         let mut filled_facts: Vec<(i64, RecipeFacts)> = Vec::new();
+        // Ingredient lists filled per recipe in this batch, likewise.
+        let mut filled_ingredients: Vec<(i64, Vec<RecipeIngredient>)> = Vec::new();
 
         for mut recipe in batch {
             last_id = recipe.id;
@@ -514,7 +524,26 @@ pub async fn backfill_locales(
                 }
             }
 
-            let extras = crate::indexer::extras::IndexExtras::load(pool, &recipe).await?;
+            let mut extras = crate::indexer::extras::IndexExtras::load(pool, &recipe).await?;
+
+            // A recipe with no stored ingredients (feed recipes crawled
+            // before the crawler stored them) gets them from the same parse,
+            // so the ingredient filters apply to it. Stored rows are never
+            // overwritten.
+            if extras.ingredients.is_empty() {
+                let rows = parsed
+                    .as_ref()
+                    .map(|parsed| parsed.ingredient_rows())
+                    .unwrap_or_default();
+                if !rows.is_empty() {
+                    extras.ingredients = rows
+                        .iter()
+                        .map(|row| crate::db::ingredients::normalize_ingredient(&row.name))
+                        .collect();
+                    filled_ingredients.push((recipe.id, rows));
+                }
+            }
+
             search_index.index_recipe_full(&mut writer, &recipe, &extras)?;
 
             resolved.push((recipe.id, locale));
@@ -534,6 +563,11 @@ pub async fn backfill_locales(
             )
             .await?;
             stats.facts_filled += 1;
+        }
+
+        for (recipe_id, rows) in filled_ingredients {
+            crate::db::ingredients::set_recipe_ingredients(pool, recipe_id, &rows).await?;
+            stats.ingredients_filled += 1;
         }
 
         for (recipe_id, locale) in resolved {

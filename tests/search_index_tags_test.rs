@@ -276,3 +276,81 @@ async fn rebuilding_keeps_servings_time_and_difficulty_already_stored() {
         .unwrap();
     assert_eq!(again.facts_filled, 0);
 }
+
+fn ingredient_names(rows: Vec<federation::db::models::IngredientWithQuantity>) -> Vec<String> {
+    let mut names: Vec<String> = rows.into_iter().map(|row| row.name).collect();
+    names.sort();
+    names
+}
+
+#[tokio::test]
+async fn rebuilding_fills_missing_ingredients_so_ingredient_filters_apply() {
+    let pool = pool().await;
+    // A feed recipe crawled before the crawler stored ingredients.
+    let recipe_id = seed_with_facts(
+        &pool,
+        "Toast the @peanuts{50%g} and toss with @noodles{200%g}.\n",
+        None,
+        None,
+        None,
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let index = SearchIndex::new(dir.path()).unwrap();
+
+    let stats = federation::cli::commands::backfill_locales(&pool, &index, true)
+        .await
+        .unwrap();
+    assert_eq!(stats.ingredients_filled, 1);
+
+    let stored = federation::db::ingredients::get_ingredients_for_recipe(&pool, recipe_id)
+        .await
+        .unwrap();
+    assert_eq!(ingredient_names(stored), vec!["noodles", "peanuts"]);
+
+    let no_peanuts = SearchFilters {
+        exclude_ingredients: vec!["peanuts".to_string()],
+        ..SearchFilters::default()
+    };
+    assert!(ids(&index, &everything(), &no_peanuts).is_empty());
+    let with_noodles = SearchFilters {
+        include_ingredients: vec!["noodles".to_string()],
+        ..SearchFilters::default()
+    };
+    assert_eq!(ids(&index, &everything(), &with_noodles), vec![recipe_id]);
+
+    // A second rebuild has nothing left to fill.
+    let again = federation::cli::commands::backfill_locales(&pool, &index, true)
+        .await
+        .unwrap();
+    assert_eq!(again.ingredients_filled, 0);
+}
+
+#[tokio::test]
+async fn rebuilding_keeps_ingredients_already_stored() {
+    let pool = pool().await;
+    let recipe_id = seed_with_facts(&pool, LENTIL_SOUP, None, None, None).await;
+    federation::db::ingredients::set_recipe_ingredients(
+        &pool,
+        recipe_id,
+        &[federation::db::models::RecipeIngredient {
+            name: "red lentils".to_string(),
+            quantity: None,
+            unit: None,
+        }],
+    )
+    .await
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let index = SearchIndex::new(dir.path()).unwrap();
+
+    let stats = federation::cli::commands::backfill_locales(&pool, &index, true)
+        .await
+        .unwrap();
+    assert_eq!(stats.ingredients_filled, 0);
+
+    let stored = federation::db::ingredients::get_ingredients_for_recipe(&pool, recipe_id)
+        .await
+        .unwrap();
+    assert_eq!(ingredient_names(stored), vec!["red lentils"]);
+}
