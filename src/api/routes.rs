@@ -8,9 +8,9 @@ use tower_http::{
 
 #[cfg(not(test))]
 use {
-    std::net::IpAddr,
+    crate::api::rate_limit::{governor_burst, governor_period, ClientIpKeyExtractor},
     std::sync::Arc,
-    tower_governor::{governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorLayer},
+    tower_governor::{governor::GovernorConfigBuilder, GovernorLayer},
 };
 
 use crate::api::handlers::{self as api_handlers, AppState};
@@ -36,42 +36,19 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
         .route("/stats", get(api_handlers::get_stats))
         .with_state(state.clone());
 
-    // Apply rate limiting only in non-test builds
-    // NOTE: Rate limiting uses a custom key extractor that:
-    // 1. Tries to extract peer IP from connection
-    // 2. Falls back to 127.0.0.1 for local testing when peer IP is unavailable
-    // For production behind a reverse proxy, configure the proxy to set X-Real-IP or
-    // X-Forwarded-For headers, and use PeerIpKeyExtractor instead.
+    // Rate limit per client (see `api::rate_limit::client_ip` for how the client
+    // is identified behind a proxy): API_RATE_LIMIT requests per second
+    // sustained, bursts of twice that. Compiled out of the library's unit tests;
+    // `tests/rate_limit_test.rs` exercises it through this router.
     #[cfg(not(test))]
     {
-        // Custom key extractor that provides fallback
-        #[derive(Clone, Copy, Debug)]
-        struct FallbackIpKeyExtractor;
-
-        impl KeyExtractor for FallbackIpKeyExtractor {
-            type Key = IpAddr;
-
-            fn extract<B>(
-                &self,
-                req: &axum::http::Request<B>,
-            ) -> Result<Self::Key, tower_governor::GovernorError> {
-                // Try to get peer IP from extensions (set by axum)
-                if let Some(addr) = req.extensions().get::<std::net::SocketAddr>() {
-                    return Ok(addr.ip());
-                }
-
-                // Fall back to localhost for local development/testing
-                Ok(IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
-            }
-        }
-
         let governor_conf = Arc::new(
             GovernorConfigBuilder::default()
-                .key_extractor(FallbackIpKeyExtractor)
-                .per_second(settings.server.api_rate_limit)
-                .burst_size(settings.server.api_rate_limit as u32 * 2)
+                .key_extractor(ClientIpKeyExtractor)
+                .period(governor_period(settings.server.api_rate_limit))
+                .burst_size(governor_burst(settings.server.api_rate_limit))
                 .finish()
-                .unwrap(),
+                .expect("governor period and burst size are non-zero"),
         );
         let governor_layer = GovernorLayer {
             config: governor_conf,

@@ -28,6 +28,10 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub external_url: Option<String>,
+    /// `API_RATE_LIMIT`: sustained requests per second allowed to each client
+    /// on `/api/*`, with bursts of up to twice that (default 100). Clients are
+    /// told apart by peer address, or by the first `X-Forwarded-For` hop when
+    /// the peer is a local reverse proxy; see `api::rate_limit::client_ip`.
     pub api_rate_limit: u64,
 }
 

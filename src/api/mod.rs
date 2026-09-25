@@ -5,4 +5,5 @@ pub mod facets;
 pub mod filters;
 pub mod handlers;
 pub mod models;
+pub mod rate_limit;
 pub mod routes;

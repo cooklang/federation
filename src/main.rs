@@ -231,9 +231,13 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
 
     info!("Server listening on {}", addr);
 
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| Error::Internal(format!("Server error: {e}")))?;
+    // Connect info gives the rate limiter each client's address.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Server error: {e}")))?;
 
     info!("Shutting down...");
     Ok(())
