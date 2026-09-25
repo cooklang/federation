@@ -9,8 +9,9 @@ use crate::config::CrawlerConfig;
 use crate::db::{self, models::*, DbPool};
 use crate::error::{Error, Result};
 use crate::indexer::extras::reindex_recipes;
-use crate::indexer::parse_cooklang_full;
+use crate::indexer::recipe_facts::RecipeFacts;
 use crate::indexer::search::SearchIndex;
+use crate::indexer::{parse_cooklang_full, ParsedRecipeData};
 use crate::utils::validation;
 use fetcher::{http_date, FetchOutcome, Fetcher, RateLimiter};
 use parser::{parse_feed, ParsedEntry};
@@ -403,6 +404,7 @@ impl Crawler {
             Some(l) => (Some(l.code.as_str()), Some(l.source.as_str())),
             None => (None, None),
         };
+        let facts = entry_facts(entry, parsed_content.as_ref());
 
         let result = match existing_recipe {
             Some(recipe) => {
@@ -418,6 +420,14 @@ impl Crawler {
                         entry.updated.as_ref(),
                         locale_code,
                         locale_source,
+                    )
+                    .await?;
+                    db::recipes::update_recipe_facts(
+                        pool,
+                        recipe.id,
+                        facts.servings,
+                        facts.total_time_minutes,
+                        facts.difficulty.as_deref(),
                     )
                     .await?;
                 }
@@ -452,10 +462,10 @@ impl Crawler {
                     enclosure_url: enclosure_url.clone(),
                     content,
                     summary: entry.summary.clone(),
-                    servings: entry.metadata.servings,
-                    total_time_minutes: entry.metadata.total_time,
+                    servings: facts.servings,
+                    total_time_minutes: facts.total_time_minutes,
                     active_time_minutes: entry.metadata.active_time,
-                    difficulty: entry.metadata.difficulty.clone(),
+                    difficulty: facts.difficulty.clone(),
                     image_url,
                     published_at: entry.published,
                     content_hash,
@@ -510,6 +520,21 @@ pub struct CrawlResult {
 }
 
 use crate::utils::resolve_image_url;
+
+/// Servings, total time and difficulty for a feed entry. Values the feed
+/// entry states win, and the `.cook` enclosure's Cooklang metadata fills the
+/// rest. (`parse_entry` does not read any from the feed XML yet.)
+fn entry_facts(entry: &ParsedEntry, parsed: Option<&ParsedRecipeData>) -> RecipeFacts {
+    let from_entry = RecipeFacts {
+        servings: entry.metadata.servings,
+        total_time_minutes: entry.metadata.total_time,
+        difficulty: entry.metadata.difficulty.clone(),
+    };
+    match parsed {
+        Some(parsed) => from_entry.or(parsed.facts.clone()),
+        None => from_entry,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -694,5 +719,64 @@ mod tests {
         // must carry on, and the writer gate must be free afterwards.
         crawler.index_changed_recipes(&pool, &[i64::MAX]).await;
         assert!(index.locked_writer().await.is_ok());
+    }
+
+    fn entry_with(metadata: crate::crawler::parser::RecipeMetadata) -> ParsedEntry {
+        ParsedEntry {
+            id: "stew".to_string(),
+            title: "Stew".to_string(),
+            summary: None,
+            source_url: None,
+            enclosure_url: Some("https://example.com/stew.cook".to_string()),
+            image_url: None,
+            published: None,
+            updated: None,
+            tags: Vec::new(),
+            metadata,
+        }
+    }
+
+    fn stew() -> crate::indexer::ParsedRecipeData {
+        parse_cooklang_full(
+            "---\nservings: 4\ntime: 1h 30min\ndifficulty: Medium\n---\nSimmer @beef{500%g}.\n",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn cooklang_metadata_fills_what_the_feed_entry_leaves_out() {
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        assert_eq!(
+            entry_facts(&entry, Some(&stew())),
+            RecipeFacts {
+                servings: Some(4),
+                total_time_minutes: Some(90),
+                difficulty: Some("medium".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn feed_entry_values_win_over_cooklang_metadata() {
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata {
+            servings: Some(2),
+            total_time: None,
+            active_time: None,
+            difficulty: Some("hard".to_string()),
+        });
+        assert_eq!(
+            entry_facts(&entry, Some(&stew())),
+            RecipeFacts {
+                servings: Some(2),
+                total_time_minutes: Some(90),
+                difficulty: Some("hard".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn without_parsed_content_only_feed_entry_values_are_used() {
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        assert_eq!(entry_facts(&entry, None), RecipeFacts::default());
     }
 }

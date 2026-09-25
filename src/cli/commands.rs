@@ -404,6 +404,9 @@ pub struct BackfillStats {
     pub updated: usize,
     /// Recipes we could not resolve a locale for.
     pub skipped: usize,
+    /// Recipes whose empty servings, total time or difficulty were filled
+    /// from their Cooklang metadata.
+    pub facts_filled: usize,
 }
 
 /// Detect and store locales for recipes that don't have one.
@@ -420,6 +423,11 @@ pub struct BackfillStats {
 /// re-indexes them — `index_recipe` deletes-then-adds by recipe id, so
 /// re-indexing is idempotent. The failure mode is "redo some work", not "lose
 /// data".
+///
+/// Servings, total time and difficulty that a row lacks are filled from the
+/// recipe's Cooklang metadata, indexed, and written after the same commit.
+/// Stored values are never overwritten. If the process dies before the write,
+/// a `--force` rerun fills them again.
 pub async fn backfill_locales(
     pool: &crate::db::DbPool,
     search_index: &crate::indexer::search::SearchIndex,
@@ -427,6 +435,7 @@ pub async fn backfill_locales(
 ) -> Result<BackfillStats> {
     use crate::db::models::Recipe;
     use crate::indexer::locale::RecipeLocale;
+    use crate::indexer::recipe_facts::RecipeFacts;
 
     /// Rows per batch. Keeps memory flat on large databases.
     const BATCH_SIZE: i64 = 500;
@@ -458,6 +467,8 @@ pub async fn backfill_locales(
         // Locale resolved per recipe in this batch, to be written to the DB only
         // after the batch's index writes are durably committed.
         let mut resolved: Vec<(i64, Option<RecipeLocale>)> = Vec::new();
+        // Facts filled per recipe in this batch, written after the commit too.
+        let mut filled_facts: Vec<(i64, RecipeFacts)> = Vec::new();
 
         for mut recipe in batch {
             last_id = recipe.id;
@@ -468,13 +479,14 @@ pub async fn backfill_locales(
                 continue;
             };
 
-            let locale = match crate::indexer::parse_cooklang_full(&content) {
-                Ok(parsed) => crate::indexer::resolve_locale(&parsed),
+            let parsed = match crate::indexer::parse_cooklang_full(&content) {
+                Ok(parsed) => Some(parsed),
                 Err(e) => {
                     warn!("Recipe {}: failed to parse content: {}", recipe.id, e);
                     None
                 }
             };
+            let locale = parsed.as_ref().and_then(crate::indexer::resolve_locale);
 
             if locale.is_none() {
                 stats.skipped += 1;
@@ -488,6 +500,20 @@ pub async fn backfill_locales(
                 recipe.locale_source = Some(locale.source.as_str().to_string());
             }
 
+            // Servings, total time and difficulty the row lacks come from the
+            // recipe's Cooklang metadata (GitHub recipes indexed before this
+            // release have none). Values already stored win.
+            if let Some(parsed) = &parsed {
+                let stored = RecipeFacts::from_recipe(&recipe);
+                let filled = stored.clone().or(parsed.facts.clone());
+                if filled != stored {
+                    recipe.servings = filled.servings;
+                    recipe.total_time_minutes = filled.total_time_minutes;
+                    recipe.difficulty = filled.difficulty.clone();
+                    filled_facts.push((recipe.id, filled));
+                }
+            }
+
             let extras = crate::indexer::extras::IndexExtras::load(pool, &recipe).await?;
             search_index.index_recipe_full(&mut writer, &recipe, &extras)?;
 
@@ -497,6 +523,18 @@ pub async fn backfill_locales(
         // Commit the index for this batch before touching the DB (Finding 2):
         // see the doc comment above for why the ordering matters.
         search_index.commit(&mut writer)?;
+
+        for (recipe_id, facts) in filled_facts {
+            crate::db::recipes::update_recipe_facts(
+                pool,
+                recipe_id,
+                facts.servings,
+                facts.total_time_minutes,
+                facts.difficulty.as_deref(),
+            )
+            .await?;
+            stats.facts_filled += 1;
+        }
 
         for (recipe_id, locale) in resolved {
             let Some(locale) = locale else {

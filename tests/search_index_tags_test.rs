@@ -175,3 +175,104 @@ async fn rebuilding_with_backfill_indexes_tags_and_feed_titles() {
         "a rebuild must fill the card's feed title"
     );
 }
+
+/// A recipe row with `content` and the given stored servings/time/difficulty,
+/// like a GitHub recipe indexed before servings and time were extracted.
+async fn seed_with_facts(
+    pool: &DbPool,
+    content: &str,
+    servings: Option<i64>,
+    total_time_minutes: Option<i64>,
+    difficulty: Option<&str>,
+) -> i64 {
+    let feed = feeds::create_feed(
+        pool,
+        &NewFeed {
+            url: "https://github.com/alice/recipes".to_string(),
+            title: Some("alice/recipes".to_string()),
+        },
+    )
+    .await
+    .unwrap();
+
+    recipes::create_recipe(
+        pool,
+        &NewRecipe {
+            feed_id: feed.id,
+            external_id: "Lentil Soup.cook".to_string(),
+            title: "Lentil Soup".to_string(),
+            source_url: None,
+            enclosure_url: "https://example.com/Lentil%20Soup.cook".to_string(),
+            content: Some(content.to_string()),
+            summary: None,
+            servings,
+            total_time_minutes,
+            active_time_minutes: None,
+            difficulty: difficulty.map(str::to_string),
+            image_url: None,
+            published_at: None,
+            content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
+            locale: None,
+            locale_source: None,
+        },
+    )
+    .await
+    .unwrap()
+    .id
+}
+
+const LENTIL_SOUP: &str =
+    "---\nservings: 2-4\ntime: 1h 15min\ndifficulty: Easy\n---\nSimmer @lentils{200%g}.\n";
+
+#[tokio::test]
+async fn rebuilding_fills_servings_time_and_difficulty_from_cooklang_metadata() {
+    let pool = pool().await;
+    let recipe_id = seed_with_facts(&pool, LENTIL_SOUP, None, None, None).await;
+    let dir = tempfile::tempdir().unwrap();
+    let index = SearchIndex::new(dir.path()).unwrap();
+
+    let stats = federation::cli::commands::backfill_locales(&pool, &index, true)
+        .await
+        .unwrap();
+    assert_eq!(stats.facts_filled, 1);
+
+    let stored = recipes::get_recipe(&pool, recipe_id).await.unwrap();
+    assert_eq!(stored.servings, Some(2));
+    assert_eq!(stored.total_time_minutes, Some(75));
+    assert_eq!(stored.difficulty.as_deref(), Some("easy"));
+
+    let filters = SearchFilters {
+        max_time: Some(90),
+        min_servings: Some(2),
+        difficulty: Some("easy".to_string()),
+        ..SearchFilters::default()
+    };
+    assert_eq!(ids(&index, &everything(), &filters), vec![recipe_id]);
+}
+
+#[tokio::test]
+async fn rebuilding_keeps_servings_time_and_difficulty_already_stored() {
+    let pool = pool().await;
+    let recipe_id = seed_with_facts(&pool, LENTIL_SOUP, Some(8), None, Some("hard")).await;
+    let dir = tempfile::tempdir().unwrap();
+    let index = SearchIndex::new(dir.path()).unwrap();
+
+    let stats = federation::cli::commands::backfill_locales(&pool, &index, true)
+        .await
+        .unwrap();
+    assert_eq!(stats.facts_filled, 1, "only the missing time was filled");
+
+    let stored = recipes::get_recipe(&pool, recipe_id).await.unwrap();
+    assert_eq!(stored.servings, Some(8));
+    assert_eq!(stored.total_time_minutes, Some(75));
+    assert_eq!(stored.difficulty.as_deref(), Some("hard"));
+
+    // Running it again changes nothing.
+    let again = federation::cli::commands::backfill_locales(&pool, &index, true)
+        .await
+        .unwrap();
+    assert_eq!(again.facts_filled, 0);
+}

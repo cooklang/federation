@@ -2,6 +2,8 @@
 use anyhow::{Context, Result};
 use cooklang::{Content, Converter, CooklangParser, Extensions, Item};
 use serde::{Deserialize, Serialize};
+
+use crate::indexer::recipe_facts::RecipeFacts;
 use tracing::{debug, warn};
 
 /// Parsed recipe structure for JSON storage
@@ -12,6 +14,10 @@ pub struct ParsedRecipeData {
     pub cookware: Vec<CookwareData>,
     pub timers: Vec<TimerData>,
     pub metadata: Option<RecipeMetadata>,
+    /// Servings, total time and difficulty, read with the cooklang crate's
+    /// metadata helpers. Empty when the recipe declares none.
+    #[serde(default)]
+    pub facts: RecipeFacts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +158,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
 
     // Extract metadata
     let meta = &recipe.metadata;
+    let facts = RecipeFacts::from_metadata(meta, &Converter::default());
     let tags: Vec<String> = meta
         .tags()
         .map(|tags_vec| tags_vec.iter().map(|t| t.to_string()).collect())
@@ -439,6 +446,7 @@ pub fn parse_recipe(content: &str) -> Result<ParsedRecipeData> {
         cookware,
         timers,
         metadata,
+        facts,
     })
 }
 

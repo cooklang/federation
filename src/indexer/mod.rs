@@ -7,6 +7,7 @@ pub mod filters;
 pub mod locale;
 mod plain_text;
 pub mod recipe;
+pub mod recipe_facts;
 pub mod schema;
 pub mod search;
 

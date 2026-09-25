@@ -338,3 +338,65 @@ async fn indexed_recipes_carry_tags_and_feed_title() {
         Some("alice/recipes")
     );
 }
+
+#[tokio::test]
+async fn metadata_servings_time_and_difficulty_are_stored_and_filterable() {
+    use federation::indexer::filters::{SearchFilters, SortOrder};
+
+    let h = Harness::new().await;
+    let mut repo = FakeRepo::new("alice", "recipes").await;
+    repo.set_files(&[(
+        "Stew.cook",
+        "---\nservings: 4\ntime: 1h 30min\ndifficulty: Medium\n---\nSimmer @beef{500%g}.\n",
+    )])
+    .await;
+    let feed_id = h.indexer(&repo).add_repository(&repo.url()).await.unwrap();
+
+    let recipe = db::recipes::list_all_recipes(&h.pool, 100, 0)
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(recipe.servings, Some(4));
+    assert_eq!(recipe.total_time_minutes, Some(90));
+    assert_eq!(recipe.difficulty.as_deref(), Some("medium"));
+
+    let query = SearchQuery {
+        q: String::new(),
+        page: 1,
+        limit: 10,
+        locale: None,
+    };
+    let matching = SearchFilters {
+        max_time: Some(90),
+        min_servings: Some(4),
+        difficulty: Some("medium".to_string()),
+        ..SearchFilters::default()
+    };
+    let found = h
+        .search
+        .search_with(&query, &matching, SortOrder::Relevance, 100)
+        .unwrap();
+    assert_eq!(found.results.len(), 1);
+    assert_eq!(found.results[0].recipe_id, recipe.id);
+
+    let too_slow = SearchFilters {
+        max_time: Some(60),
+        ..SearchFilters::default()
+    };
+    assert!(h
+        .search
+        .search_with(&query, &too_slow, SortOrder::Relevance, 100)
+        .unwrap()
+        .results
+        .is_empty());
+
+    // The file is the only source: an edit that drops a key clears the column.
+    repo.set_files(&[("Stew.cook", "---\nservings: 6\n---\nSimmer @beef{500%g}.\n")])
+        .await;
+    h.indexer(&repo).index_repository(feed_id).await.unwrap();
+
+    let after = db::recipes::get_recipe(&h.pool, recipe.id).await.unwrap();
+    assert_eq!(after.servings, Some(6));
+    assert_eq!(after.total_time_minutes, None);
+    assert_eq!(after.difficulty, None);
+}

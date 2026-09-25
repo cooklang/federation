@@ -504,6 +504,27 @@ pub async fn update_recipe_locale(
     Ok(())
 }
 
+/// Set a recipe's servings, total time and difficulty, all three as given.
+pub async fn update_recipe_facts(
+    pool: &DbPool,
+    recipe_id: i64,
+    servings: Option<i64>,
+    total_time_minutes: Option<i64>,
+    difficulty: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE recipes SET servings = ?, total_time_minutes = ?, difficulty = ? WHERE id = ?",
+    )
+    .bind(servings)
+    .bind(total_time_minutes)
+    .bind(difficulty)
+    .bind(recipe_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 /// Every distinct locale present in the database with its recipe count,
 /// most common first. Used to populate the language filter.
 pub async fn list_locales(pool: &DbPool) -> Result<Vec<(String, i64)>> {

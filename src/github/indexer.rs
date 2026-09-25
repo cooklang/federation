@@ -320,16 +320,18 @@ impl GitHubIndexer {
         let parsed = crate::indexer::parse_cooklang_full(&content);
 
         let title = recipe_title(parsed.as_ref().ok(), file_path);
-        let (summary, servings, total_time, metadata_image) = if let Ok(ref parsed_data) = parsed {
-            // Extract metadata from parsed content
-            let summary = None; // Can be enhanced to extract from recipe notes
-            let servings = None; // Can be extracted from metadata
-            let total_time = None; // Can be extracted from timer sum
-            let metadata_image = parsed_data.metadata.as_ref().and_then(|m| m.image.clone());
-            (summary, servings, total_time, metadata_image)
-        } else {
-            (None, None, None, None)
-        };
+
+        // The file is the only source of a GitHub recipe's servings, total
+        // time and difficulty: a key removed upstream clears the column.
+        let facts = parsed
+            .as_ref()
+            .map(|parsed_data| parsed_data.facts.clone())
+            .unwrap_or_default();
+        let metadata_image = parsed
+            .as_ref()
+            .ok()
+            .and_then(|parsed_data| parsed_data.metadata.as_ref())
+            .and_then(|m| m.image.clone());
 
         // Locale: declared `locale:` metadata wins, otherwise detected from text.
         let locale = parsed
@@ -375,11 +377,12 @@ impl GitHubIndexer {
                 title: Some(title.clone()),
                 source_url: Some(html_url.clone()),
                 content: Some(content.clone()),
-                summary,
-                servings,
-                total_time_minutes: total_time,
+                summary: None,
+                servings: facts.servings,
+                total_time_minutes: facts.total_time_minutes,
+                // Cooklang has no standard active-time key; keep what we have.
                 active_time_minutes: recipe.active_time_minutes,
-                difficulty: recipe.difficulty.clone(),
+                difficulty: facts.difficulty.clone(),
                 image_url,
                 updated_at: None,
             };
@@ -422,11 +425,11 @@ impl GitHubIndexer {
                 source_url: Some(html_url.clone()),
                 enclosure_url: raw_url.clone(),
                 content: Some(content.clone()),
-                summary,
-                servings,
-                total_time_minutes: total_time,
+                summary: None,
+                servings: facts.servings,
+                total_time_minutes: facts.total_time_minutes,
                 active_time_minutes: None,
-                difficulty: None,
+                difficulty: facts.difficulty,
                 image_url,
                 published_at: None,
                 content_hash,
