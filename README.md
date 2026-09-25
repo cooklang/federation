@@ -180,35 +180,52 @@ cargo run -- cleanup
 
 ## API Endpoints
 
+The API is read-only JSON. Errors are `{"error": "message"}` with a 4xx/5xx
+status. `/api/*` is rate-limited per client IP (see `API_RATE_LIMIT`).
+
 ### Health & Status
 - `GET /health` - Health check
 - `GET /ready` - Readiness check
-- `GET /api/stats` - System statistics
+- `GET /api/stats` - Totals: `total_recipes`, `total_feeds`, `total_tags`, `total_ingredients`, `active_feeds`
 
 ### Search
-- `GET /api/search?q=<query>` - Search recipes with unified query syntax. Every
-  term must match (`vegan tags:dessert` is vegan **and** dessert); use `OR` for
-  alternatives and `-` to exclude. Words are stemmed, so `cake` finds "cakes".
-  - `locale` (optional) - Filter to a single language, e.g. `locale=de`. Filtering
-    by a base language (`en`) also matches its regional variants (`en-US`).
-  - Examples:
-    - `/api/search?q=breakfast` - Basic search
-    - `/api/search?q=tags:breakfast` - Field-specific search
-    - `/api/search?q=pasta%20AND%20tags:italian` - Boolean search
-    - `/api/search?q=total_time:[0%20TO%2030]` - Range search
-    - `/api/search?q=breakfast&locale=fr` - Search restricted to French recipes
+- `GET /api/search` - Search recipes. Every term in `q` must match
+  (`vegan tags:dessert` is vegan **and** dessert); use `OR` for alternatives and
+  `-` to exclude. Words are stemmed, so `cake` finds "cakes".
+
+  | Param | Example | Meaning |
+  |---|---|---|
+  | `q` | `q=pasta tags:italian` | Query string (field syntax as above) |
+  | `locale` | `locale=de` | Language; `en` also matches `en-US` |
+  | `tags` | `tags=vegan,dessert` | Has **all** tags (stemmed, case-insensitive) |
+  | `include_ingredients` | `include_ingredients=garlic,lemon` | Uses **all** ingredients |
+  | `exclude_ingredients` | `exclude_ingredients=peanut` | Uses **none** of them |
+  | `max_time` | `max_time=30` | Total time ≤ minutes |
+  | `min_servings`, `max_servings` | `min_servings=2&max_servings=6` | Inclusive range |
+  | `difficulty` | `difficulty=easy` | Exact, case-insensitive |
+  | `feed_id` | `feed_id=12` | Only this feed |
+  | `sort` | `sort=newest` | `relevance` (default) or `newest` |
+  | `page`, `limit` | `page=2&limit=20` | Paging (limit max 100) |
+
+  Invalid numbers, an unknown `sort` or a malformed `q` return `400`. Each
+  result card has `id`, `title`, `summary`, `tags`, `locale`,
+  `total_time_minutes`, `servings`, `difficulty`, `image_url` and
+  `feed: {id, title}`. Any field except `id`, `title` and `tags` may be null.
+- `GET /api/facets?tag_limit=200` - Tag, language and difficulty values with
+  recipe counts, for filter UIs. Cached for 5 minutes; `tag_limit` defaults to
+  200, max 1000.
 
 ### Recipes
-- `GET /api/recipes/:id` - Get recipe details, including `locale` (e.g. `"de"`,
+- `GET /api/recipes/:id` - Recipe details, including `locale` (e.g. `"de"`,
   `"en-US"`) and `locale_source` (`"declared"` if set via a Cooklang `locale:`
   key, or `"detected"` if inferred from the recipe text)
 - `GET /api/recipes/:id/download` - Download .cook file
 
 ### Feeds
-- `GET /api/feeds` - List all feeds
-- `POST /api/feeds` - Register a new feed
+- `GET /api/feeds` - List feeds (`page`, `limit`, `status`)
 - `GET /api/feeds/:id` - Get feed details
-- `DELETE /api/feeds/:id` - Remove a feed
+
+Feeds are registered through `config/feeds.yaml`, not the API.
 
 ## Configuration
 
@@ -229,6 +246,72 @@ Environment variables (see `.env.example`):
 | `RUST_LOG` | Logging level | `info,federation=debug` |
 
 ## Upgrading
+
+### Recipe Hub API release (search index rebuild required)
+
+This release adds `feed_id`, `indexed_at`, `image_url` and `feed_title` to the
+Tantivy schema and makes `servings` and `total_time` indexed, for the new
+structured search filters, `sort=newest` and richer result cards. As with
+earlier schema changes, **the server refuses to start** against an index built
+by a previous version.
+
+Rebuild before starting `serve`:
+
+```bash
+rm -rf data/index   # or your configured INDEX_PATH
+federation backfill-locales --force
+```
+
+With Docker Compose, stop the app first, then run the rebuild in a one-off container:
+
+```bash
+docker compose stop app
+rm -rf data/index
+docker compose run --rm app federation backfill-locales --force
+docker compose up -d app
+```
+
+`backfill-locales --force` is the full rebuild: it re-indexes every recipe with
+its tags, ingredients and feed title, and fills missing servings, total time
+and difficulty from the recipe's Cooklang metadata. (`federation reindex <url>` is a
+different command: it deletes one feed's recipes from the database and
+re-crawls that feed, and it does not rebuild the search index.) Recipes with
+no stored content are not indexed by the rebuild and will not appear in
+search results or facet counts until their content is fetched again.
+
+Ship this whole branch as one release: production only needs one index
+rebuild, not one per commit.
+
+Other behaviour changes:
+
+- **Feed recipes are indexed as they are crawled.** Before, recipes from
+  RSS/Atom feeds (and their `<category>` tags) reached the search index only
+  through `backfill-locales`. Existing feed recipes reach the index through
+  the rebuild above; nothing further is needed for them.
+- **Servings, total time and difficulty come from Cooklang metadata.**
+  GitHub and feed recipes now store `servings`, `time` (or `prep time` +
+  `cook time`) and `difficulty` from their `.cook` metadata, so the
+  `max_time`, `min_servings`/`max_servings` and `difficulty` filters and the
+  difficulty facet also match them. Before, those columns stayed empty for
+  GitHub recipes, and for feed recipes unless the feed entry set them. The
+  values live in the database, not only in the index, so existing recipes
+  get them from the full rebuild above: `backfill-locales --force` fills
+  empty columns from each recipe's stored content, writes them to the
+  database and indexes them. No re-crawl is needed. A re-crawl would not
+  help anyway, because the GitHub indexer skips files whose SHA has not
+  changed.
+- **Rate limiting is per client and matches `API_RATE_LIMIT`.** It used to be
+  one bucket for everyone that refilled one request every `API_RATE_LIMIT`
+  seconds. Now each client gets `API_RATE_LIMIT` requests per second with
+  bursts of twice that. If you run behind a reverse proxy, the proxy must
+  connect to this server from a loopback or private address, and it must
+  overwrite (not append to) the `X-Forwarded-For` header with the real client
+  address — e.g. in nginx, `proxy_set_header X-Forwarded-For $remote_addr;`.
+  Otherwise the first hop of `X-Forwarded-For` is trusted as the client
+  address, and a client can set that header itself to pick its own
+  rate-limit bucket.
+- **A malformed `q` returns `400`** with the parser's message instead of `500`.
+- The website search form has the same filters as the API.
 
 ### Search quality release (search index rebuild required)
 

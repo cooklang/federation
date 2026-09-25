@@ -672,8 +672,8 @@ git push origin main
     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
         <h2 class="text-2xl font-bold text-gray-900 mb-4">API Documentation</h2>
         <p class="text-gray-700 mb-4">
-            The federation exposes a RESTful JSON API for programmatic access to recipe data. All endpoints are publicly accessible
-            and rate-limited to ensure fair usage.
+            A read-only JSON API over the same index this site searches. No authentication is needed and CORS allows every origin.
+            Errors return a 4xx or 5xx status with a body of the form <code class="bg-gray-100 px-1 rounded">{"error": "message"}</code>.
         </p>
 
         <div class="space-y-6">
@@ -686,60 +686,110 @@ git push origin main
                 <p class="text-sm text-gray-600 mb-3">
                     <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/search</code>
                 </p>
-                <p class="text-gray-700 mb-3 text-sm">Full-text search with filtering by tags, ingredients, time, and difficulty.</p>
+                <p class="text-gray-700 mb-3 text-sm">
+                    Every term in <code class="bg-gray-100 px-1 rounded">q</code> must match, and each structured filter narrows the results further.
+                    Tag and ingredient filters are case-insensitive and stemmed, so <code class="bg-gray-100 px-1 rounded">tags=Desserts</code> matches "dessert".
+                    List values are comma-separated and empty items are ignored.
+                </p>
 
-                <div class="bg-gray-50 rounded p-3 mb-3">
+                <div class="bg-gray-50 rounded p-3 mb-3 overflow-x-auto">
                     <p class="text-sm font-semibold text-gray-900 mb-2">Query Parameters:</p>
                     <table class="w-full text-sm">
                         <tbody>
                             <tr class="border-b border-gray-200">
                                 <td class="py-1 pr-4 font-mono text-xs text-orange-600">q</td>
-                                <td class="py-1 text-gray-700">Search query (title, ingredients, tags)</td>
+                                <td class="py-1 text-gray-700">Query string. Fields: <code>title:</code>, <code>tags:</code>, <code>ingredients:</code>, <code>instructions:</code>, <code>difficulty:</code>, <code>total_time:[0 TO 30]</code>; <code>OR</code>, <code>-exclude</code>, <code>"quoted phrases"</code>.</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">locale</td>
+                                <td class="py-1 text-gray-700">Language code, e.g. <code>de</code>. A base language also matches its regional variants (<code>en</code> matches <code>en-US</code>).</td>
                             </tr>
                             <tr class="border-b border-gray-200">
                                 <td class="py-1 pr-4 font-mono text-xs text-orange-600">tags</td>
-                                <td class="py-1 text-gray-700">Comma-separated tag filter (e.g., "dessert,cookies")</td>
+                                <td class="py-1 text-gray-700">Recipe has <strong>all</strong> of these tags, e.g. <code>vegan,dessert</code>.</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">include_ingredients</td>
+                                <td class="py-1 text-gray-700">Recipe uses <strong>all</strong> of these ingredients, e.g. <code>garlic,lemon</code>.</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">exclude_ingredients</td>
+                                <td class="py-1 text-gray-700">Recipe uses <strong>none</strong> of these, e.g. <code>peanut</code>.</td>
                             </tr>
                             <tr class="border-b border-gray-200">
                                 <td class="py-1 pr-4 font-mono text-xs text-orange-600">max_time</td>
-                                <td class="py-1 text-gray-700">Maximum cooking time in minutes</td>
+                                <td class="py-1 text-gray-700">Total time at most this many minutes. Recipes without a total time are excluded.</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">min_servings, max_servings</td>
+                                <td class="py-1 text-gray-700">Inclusive servings range.</td>
                             </tr>
                             <tr class="border-b border-gray-200">
                                 <td class="py-1 pr-4 font-mono text-xs text-orange-600">difficulty</td>
-                                <td class="py-1 text-gray-700">Filter by difficulty: "easy", "medium", or "hard"</td>
+                                <td class="py-1 text-gray-700">Exact difficulty, case-insensitive, e.g. <code>easy</code>.</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">feed_id</td>
+                                <td class="py-1 text-gray-700">Only recipes from this feed (ids from <code>/api/feeds</code>).</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">sort</td>
+                                <td class="py-1 text-gray-700"><code>relevance</code> (default) or <code>newest</code>.</td>
+                            </tr>
+                            <tr class="border-b border-gray-200">
+                                <td class="py-1 pr-4 font-mono text-xs text-orange-600">page</td>
+                                <td class="py-1 text-gray-700">Page number, from 1 (default 1).</td>
                             </tr>
                             <tr>
                                 <td class="py-1 pr-4 font-mono text-xs text-orange-600">limit</td>
-                                <td class="py-1 text-gray-700">Results per page (default: 20, max: 100)</td>
+                                <td class="py-1 text-gray-700">Results per page (default 20, max 100).</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
+                <p class="text-gray-700 mb-3 text-sm">A malformed <code class="bg-gray-100 px-1 rounded">q</code>, a non-numeric number, or an unknown <code class="bg-gray-100 px-1 rounded">sort</code> returns 400 with a message.</p>
 
                 <p class="text-sm font-semibold text-gray-900 mb-1">Example Request:</p>
-                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto mb-3"><code>GET /api/search?q=chocolate+cookies&tags=dessert&max_time=60&limit=10</code></pre>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto mb-3"><code>GET /api/search?q=cookies&amp;tags=dessert&amp;max_time=60&amp;limit=10</code></pre>
 
                 <p class="text-sm font-semibold text-gray-900 mb-1">Example Response:</p>
-                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>{
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto mb-3"><code>{
   "results": [
     {
-      "id": "123",
+      "id": 123,
       "title": "Chocolate Chip Cookies",
-      "feed_id": "feed-456",
-      "feed_name": "Jane's Recipes",
-      "author": "Jane Doe",
-      "summary": "Classic chocolate chip cookies...",
-      "tags": ["dessert", "cookies", "baking"],
+      "summary": "Crispy outside, chewy inside.",
+      "tags": ["baking", "cookies", "dessert"],
+      "locale": "en",
+      "total_time_minutes": 45,
       "servings": 24,
-      "time_minutes": 45,
       "difficulty": "easy",
-      "updated_at": "2025-10-20T12:00:00Z",
-      "recipe_url": "https://example.com/cookies.cook"
+      "image_url": "https://example.com/cookies.jpg",
+      "feed": { "id": 12, "title": "Jane's Recipes" }
     }
   ],
-  "total": 1,
-  "page": 1,
-  "limit": 10
+  "pagination": { "page": 1, "limit": 10, "total": 1, "total_pages": 1 }
+}</code></pre>
+                <p class="text-gray-700 text-sm">Every card field other than <code class="bg-gray-100 px-1 rounded">id</code>, <code class="bg-gray-100 px-1 rounded">title</code> and <code class="bg-gray-100 px-1 rounded">tags</code> may be <code class="bg-gray-100 px-1 rounded">null</code>.</p>
+            </div>
+
+            <!-- Facets Endpoint -->
+            <div class="border-l-4 border-blue-500 pl-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900">Filter Values</h3>
+                    <span class="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded">GET</span>
+                </div>
+                <p class="text-sm text-gray-600 mb-3">
+                    <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/facets</code>
+                </p>
+                <p class="text-gray-700 mb-3 text-sm">
+                    Tags, languages and difficulties with recipe counts, most common first. Use it to build filter UIs. Refreshed every five minutes.
+                    Optional <code class="bg-gray-100 px-1 rounded">tag_limit</code>: number of tags (default 200, max 1000).
+                </p>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>{
+  "tags": [{ "name": "dessert", "count": 123 }],
+  "locales": [{ "code": "en", "name": "English", "count": 900 }],
+  "difficulties": [{ "name": "easy", "count": 40 }]
 }</code></pre>
             </div>
 
@@ -752,32 +802,24 @@ git push origin main
                 <p class="text-sm text-gray-600 mb-3">
                     <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/recipes/:id</code>
                 </p>
-                <p class="text-gray-700 mb-3 text-sm">Retrieve complete recipe metadata including parsed Cooklang content.</p>
-
-                <p class="text-sm font-semibold text-gray-900 mb-1">Example Response:</p>
+                <p class="text-gray-700 mb-3 text-sm">The full record, including the raw Cooklang source. <code class="bg-gray-100 px-1 rounded">locale_source</code> is <code class="bg-gray-100 px-1 rounded">declared</code> (from a <code class="bg-gray-100 px-1 rounded">locale:</code> key) or <code class="bg-gray-100 px-1 rounded">detected</code>.</p>
                 <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>{
-  "id": "123",
+  "id": 123,
   "title": "Chocolate Chip Cookies",
-  "content": "---\nservings: 24\ntime: 45 minutes\n...",
-  "parsed": {
-    "ingredients": [
-      {"name": "butter", "quantity": "200", "units": "g"},
-      {"name": "sugar", "quantity": "150", "units": "g"}
-    ],
-    "steps": ["Preheat oven...", "Cream butter..."]
-  },
-  "metadata": {
-    "servings": 24,
-    "time_minutes": 45,
-    "tags": ["dessert", "cookies"],
-    "difficulty": "easy"
-  },
-  "feed": {
-    "id": "feed-456",
-    "name": "Jane's Recipes",
-    "author": "Jane Doe",
-    "url": "https://example.com/feed.xml"
-  }
+  "summary": "Crispy outside, chewy inside.",
+  "content": "---\ntitle: Chocolate Chip Cookies\n---\nCream @butter{200%g} ...",
+  "ingredients": [{ "name": "butter", "quantity": 200.0, "unit": "g" }],
+  "tags": ["cookies", "dessert"],
+  "servings": 24,
+  "total_time_minutes": 45,
+  "active_time_minutes": 20,
+  "difficulty": "easy",
+  "image_url": "https://example.com/cookies.jpg",
+  "source_url": "https://example.com/recipes/cookies",
+  "enclosure_url": "https://example.com/recipes/cookies.cook",
+  "locale": "en",
+  "locale_source": "declared",
+  "feed": { "id": 12, "title": "Jane's Recipes", "author": "Jane Doe" }
 }</code></pre>
             </div>
 
@@ -790,19 +832,35 @@ git push origin main
                 <p class="text-sm text-gray-600 mb-3">
                     <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/recipes/:id/download</code>
                 </p>
-                <p class="text-gray-700 text-sm">Download the raw .cook file with proper content-type headers.</p>
+                <p class="text-gray-700 text-sm">The raw <code class="bg-gray-100 px-1 rounded">.cook</code> file as <code class="bg-gray-100 px-1 rounded">text/plain</code>. 404 when the content could not be fetched.</p>
             </div>
 
-            <!-- List Feeds Endpoint -->
+            <!-- Feeds Endpoints -->
             <div class="border-l-4 border-blue-500 pl-4">
                 <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-lg font-semibold text-gray-900">List All Feeds</h3>
+                    <h3 class="text-lg font-semibold text-gray-900">Feeds</h3>
                     <span class="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded">GET</span>
                 </div>
                 <p class="text-sm text-gray-600 mb-3">
                     <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/feeds</code>
+                    <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/feeds/:id</code>
                 </p>
-                <p class="text-gray-700 text-sm">List all registered feeds with metadata and recipe counts.</p>
+                <p class="text-gray-700 mb-3 text-sm">Registered feeds, paginated with <code class="bg-gray-100 px-1 rounded">page</code> and <code class="bg-gray-100 px-1 rounded">limit</code>, optionally filtered by <code class="bg-gray-100 px-1 rounded">status</code>. <code class="bg-gray-100 px-1 rounded">/api/feeds/:id</code> returns one feed in the same shape.</p>
+                <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>{
+  "feeds": [
+    {
+      "id": 12,
+      "url": "https://example.com/feed.xml",
+      "title": "Jane's Recipes",
+      "author": "Jane Doe",
+      "status": "active",
+      "recipe_count": 42,
+      "last_fetched_at": "2026-09-25T10:00:00+00:00",
+      "created_at": "2026-01-01T00:00:00+00:00"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "total_pages": 1 }
+}</code></pre>
             </div>
 
             <!-- Stats Endpoint -->
@@ -814,7 +872,7 @@ git push origin main
                 <p class="text-sm text-gray-600 mb-3">
                     <code class="bg-gray-900 text-gray-100 px-2 py-1 rounded">/api/stats</code>
                 </p>
-                <p class="text-gray-700 mb-3 text-sm">System-wide statistics including total recipes, feeds, and indexing status.</p>
+                <p class="text-gray-700 mb-3 text-sm">Totals: <code class="bg-gray-100 px-1 rounded">total_recipes</code>, <code class="bg-gray-100 px-1 rounded">total_feeds</code>, <code class="bg-gray-100 px-1 rounded">total_tags</code>, <code class="bg-gray-100 px-1 rounded">total_ingredients</code>, <code class="bg-gray-100 px-1 rounded">active_feeds</code>.</p>
                 <p class="text-sm">
                     <a href="/api/stats" class="text-orange-600 hover:text-orange-700 underline font-medium">View live stats →</a>
                 </p>
@@ -829,9 +887,9 @@ git push origin main
                 <div>
                     <p class="text-sm text-yellow-800 font-semibold mb-1">Rate Limiting</p>
                     <p class="text-sm text-yellow-700">
-                        All API endpoints are rate-limited to 100 requests per second per IP address.
-                        Exceed this limit and you'll receive HTTP 429 (Too Many Requests) responses.
-                        For higher limits, consider self-hosting your own federation instance.
+                        Every <code>/api</code> endpoint is limited per client IP address, to 100 requests per second on this instance with bursts of twice that.
+                        Over the limit you get HTTP 429 (Too Many Requests). Back off and retry.
+                        For higher limits, run your own federation instance.
                     </p>
                 </div>
             </div>

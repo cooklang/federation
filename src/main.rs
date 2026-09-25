@@ -220,6 +220,7 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
     );
     println!("\nAPI Endpoints:");
     println!("  GET  /api/search");
+    println!("  GET  /api/facets");
     println!("  GET  /api/recipes/:id");
     println!("  GET  /api/recipes/:id/download");
     println!("  GET  /api/feeds");

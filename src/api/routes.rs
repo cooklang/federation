@@ -783,4 +783,36 @@ mod tests {
         assert!(!html.contains("aria-invalid"));
         assert!(!html.contains("aria-describedby"));
     }
+
+    #[tokio::test]
+    async fn about_page_documents_the_real_api() {
+        let (state, _index_dir) = create_test_state().await;
+        let (status, html) = get_text(&state, "/about").await;
+        assert_eq!(status, StatusCode::OK);
+
+        for documented in [
+            "/api/facets",
+            "include_ingredients",
+            "exclude_ingredients",
+            "min_servings",
+            "feed_id",
+            "sort",
+            "tag_limit",
+            "total_time_minutes",
+            // Literal template text is not HTML-escaped by Askama.
+            r#""pagination": {"#,
+        ] {
+            assert!(
+                html.contains(documented),
+                "About page should document {documented}"
+            );
+        }
+        // Fields from the old, invented response examples that the API never had.
+        for invented in ["recipe_url", "feed_name", "\"parsed\""] {
+            assert!(
+                !html.contains(invented),
+                "{invented} is not a real API field"
+            );
+        }
+    }
 }
