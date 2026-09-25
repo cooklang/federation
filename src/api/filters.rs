@@ -1,6 +1,8 @@
 //! Structured-filter query parameters shared by `GET /api/search` and the
 //! website search form.
 
+use std::collections::HashSet;
+
 use serde::Deserialize;
 
 use crate::error::{Error, Result};
@@ -40,9 +42,15 @@ impl FilterParams {
     /// Validate and convert to search filters and an order.
     pub fn parse(&self) -> Result<(SearchFilters, SortOrder)> {
         let filters = SearchFilters {
-            tags: split_list(self.tags.as_deref()),
-            include_ingredients: split_list(self.include_ingredients.as_deref()),
-            exclude_ingredients: split_list(self.exclude_ingredients.as_deref()),
+            tags: split_list("tags", self.tags.as_deref())?,
+            include_ingredients: split_list(
+                "include_ingredients",
+                self.include_ingredients.as_deref(),
+            )?,
+            exclude_ingredients: split_list(
+                "exclude_ingredients",
+                self.exclude_ingredients.as_deref(),
+            )?,
             max_time: parse_count("max_time", self.max_time.as_deref())?,
             min_servings: parse_count("min_servings", self.min_servings.as_deref())?,
             max_servings: parse_count("max_servings", self.max_servings.as_deref())?,
@@ -99,15 +107,29 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-/// Comma-separated list, items trimmed, empty items dropped.
-fn split_list(value: Option<&str>) -> Vec<String> {
-    value
+/// Most distinct values one list parameter accepts. Each value becomes a
+/// search clause, so this bounds the work a single request can ask for.
+const MAX_LIST_ITEMS: usize = 20;
+
+/// Comma-separated list: items trimmed, empty items dropped, duplicates
+/// (compared case-insensitively) removed keeping the first spelling. More than
+/// [`MAX_LIST_ITEMS`] distinct values is a validation error naming `name`.
+fn split_list(name: &str, value: Option<&str>) -> Result<Vec<String>> {
+    let mut seen = HashSet::new();
+    let items: Vec<String> = value
         .unwrap_or_default()
         .split(',')
         .map(str::trim)
         .filter(|item| !item.is_empty())
+        .filter(|item| seen.insert(item.to_lowercase()))
         .map(str::to_string)
-        .collect()
+        .collect();
+    if items.len() > MAX_LIST_ITEMS {
+        return Err(Error::Validation(format!(
+            "{name} accepts at most {MAX_LIST_ITEMS} values"
+        )));
+    }
+    Ok(items)
 }
 
 /// A non-negative whole number, or `None` when blank.
@@ -251,6 +273,73 @@ mod tests {
             matches!(result, Err(Error::Validation(ref m)) if m.contains("sort")),
             "{result:?}"
         );
+    }
+
+    #[test]
+    fn list_items_are_deduplicated_case_insensitively_keeping_the_first() {
+        let (filters, _) = FilterParams {
+            tags: Some("Vegan,dessert,vegan, DESSERT ,quick".into()),
+            include_ingredients: Some("garlic,Garlic".into()),
+            exclude_ingredients: Some("nuts,NUTS,nuts".into()),
+            ..FilterParams::default()
+        }
+        .parse()
+        .unwrap();
+        assert_eq!(filters.tags, vec!["Vegan", "dessert", "quick"]);
+        assert_eq!(filters.include_ingredients, vec!["garlic"]);
+        assert_eq!(filters.exclude_ingredients, vec!["nuts"]);
+    }
+
+    #[test]
+    fn lists_are_capped_at_twenty_distinct_values() {
+        let items = |n: usize| {
+            (0..n)
+                .map(|i| format!("item{i}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+
+        // Exactly the cap is fine, and duplicates do not count towards it.
+        let (filters, _) = FilterParams {
+            tags: Some(format!("{},item0,ITEM1", items(20))),
+            ..FilterParams::default()
+        }
+        .parse()
+        .unwrap();
+        assert_eq!(filters.tags.len(), 20);
+
+        for (params, name) in [
+            (
+                FilterParams {
+                    tags: Some(items(21)),
+                    ..FilterParams::default()
+                },
+                "tags",
+            ),
+            (
+                FilterParams {
+                    include_ingredients: Some(items(21)),
+                    ..FilterParams::default()
+                },
+                "include_ingredients",
+            ),
+            (
+                FilterParams {
+                    exclude_ingredients: Some(items(21)),
+                    ..FilterParams::default()
+                },
+                "exclude_ingredients",
+            ),
+        ] {
+            match params.parse() {
+                Err(Error::Validation(message)) => assert_eq!(
+                    message,
+                    format!("{name} accepts at most 20 values"),
+                    "{name}"
+                ),
+                other => panic!("{name}: expected a validation error, got {other:?}"),
+            }
+        }
     }
 
     #[test]

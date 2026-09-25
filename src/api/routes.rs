@@ -545,4 +545,22 @@ mod tests {
         assert_eq!(json["results"].as_array().unwrap().len(), 1);
         assert_eq!(json["pagination"]["limit"], 1);
     }
+
+    /// A repeated list parameter is not merged: axum's `Query` rejects the
+    /// duplicate key before the handler runs. Lists are comma-separated.
+    #[tokio::test]
+    async fn search_rejects_a_repeated_list_parameter() {
+        let (state, _index_dir) = create_test_state().await;
+        let app = create_router(state.clone(), &state.settings);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/search?tags=a&tags=b")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
 }
