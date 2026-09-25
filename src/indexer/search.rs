@@ -1,15 +1,18 @@
 use crate::db::models::Recipe;
 use crate::error::{Error, Result};
 use crate::indexer::extras::IndexExtras;
-use crate::indexer::filters::normalize_difficulty;
+use crate::indexer::filters::{normalize_difficulty, SearchFilters};
 use crate::indexer::locale::normalize_code;
 use crate::indexer::plain_text::instructions_text;
 use crate::indexer::schema::RecipeSchema;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tantivy::collector::{Count, TopDocs};
-use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, TermQuery};
+use tantivy::query::{
+    BooleanQuery, ConstScoreQuery, Occur, PhraseQuery, Query, QueryParser, TermQuery,
+};
 use tantivy::schema::IndexRecordOption;
+use tantivy::tokenizer::TokenStream;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 use tracing::{debug, info};
 
@@ -229,6 +232,16 @@ impl SearchIndex {
 
     /// Search recipes using unified query string
     pub fn search(&self, query: &SearchQuery, max_limit: usize) -> Result<SearchResults> {
+        self.search_with(query, &SearchFilters::default(), max_limit)
+    }
+
+    /// Search with structured filters ANDed onto the parsed query string.
+    pub fn search_with(
+        &self,
+        query: &SearchQuery,
+        filters: &SearchFilters,
+        max_limit: usize,
+    ) -> Result<SearchResults> {
         let searcher = self.reader.searcher();
 
         // Build query parser over the fields free text should search. The file
@@ -257,7 +270,7 @@ impl SearchIndex {
         query_parser.set_conjunction_by_default();
 
         // Parse unified query string
-        let tantivy_query = if query.q.is_empty() {
+        let parsed_query = if query.q.is_empty() {
             Box::new(tantivy::query::AllQuery) as Box<dyn Query>
         } else {
             query_parser
@@ -265,23 +278,26 @@ impl SearchIndex {
                 .map_err(|e| Error::Search(format!("Invalid query: {e}")))?
         };
 
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> = vec![(Occur::Must, parsed_query)];
+
         // AND an exact locale term onto the parsed query when filtering. The locale
         // field is untokenized (exact match), so normalize the incoming filter to the
         // canonical stored form first — otherwise `?locale=EN` or `?locale=en-us`
         // would silently match nothing.
-        let tantivy_query = match query.locale.as_deref().filter(|l| !l.is_empty()) {
-            Some(locale) => {
-                let normalized = normalize_code(locale);
-                let term = Term::from_field_text(self.schema.locale, &normalized);
-                let locale_query: Box<dyn Query> =
-                    Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+        if let Some(locale) = query.locale.as_deref().filter(|l| !l.is_empty()) {
+            let term = Term::from_field_text(self.schema.locale, &normalize_code(locale));
+            clauses.push((
+                Occur::Must,
+                Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+            ));
+        }
 
-                Box::new(BooleanQuery::new(vec![
-                    (Occur::Must, tantivy_query),
-                    (Occur::Must, locale_query),
-                ])) as Box<dyn Query>
-            }
-            None => tantivy_query,
+        clauses.extend(self.filter_clauses(filters)?);
+
+        let tantivy_query: Box<dyn Query> = if clauses.len() == 1 {
+            clauses.remove(0).1
+        } else {
+            Box::new(BooleanQuery::new(clauses))
         };
 
         // Calculate offset
@@ -296,7 +312,6 @@ impl SearchIndex {
             )
             .map_err(|e| Error::Search(format!("Search failed: {e}")))?;
 
-        // Extract results with pagination
         let results: Vec<SearchResult> = top_docs
             .into_iter()
             .filter_map(|(score, doc_address)| {
@@ -312,6 +327,63 @@ impl SearchIndex {
             total,
             page: query.page,
             total_pages,
+        })
+    }
+
+    /// Query clauses for the structured filters. Positive filters are wrapped
+    /// in a zero constant score, so they narrow results without changing how
+    /// the free-text query ranks them.
+    fn filter_clauses(&self, filters: &SearchFilters) -> Result<Vec<(Occur, Box<dyn Query>)>> {
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+
+        for tag in &filters.tags {
+            if let Some(query) = self.text_match_query(self.schema.tags, tag)? {
+                clauses.push((Occur::Must, unscored(query)));
+            }
+        }
+
+        for ingredient in &filters.include_ingredients {
+            if let Some(query) = self.text_match_query(self.schema.ingredients, ingredient)? {
+                clauses.push((Occur::Must, unscored(query)));
+            }
+        }
+
+        for ingredient in &filters.exclude_ingredients {
+            if let Some(query) = self.text_match_query(self.schema.ingredients, ingredient)? {
+                clauses.push((Occur::MustNot, query));
+            }
+        }
+
+        Ok(clauses)
+    }
+
+    /// A query matching `text` in `field` after running it through that field's
+    /// analyzer, so a filter value is lowercased and stemmed exactly like the
+    /// indexed values. One token becomes a term query and several become a phrase.
+    /// Text that yields no tokens returns `None`, which means no filter.
+    fn text_match_query(
+        &self,
+        field: tantivy::schema::Field,
+        text: &str,
+    ) -> Result<Option<Box<dyn Query>>> {
+        let mut analyzer = self
+            .index
+            .tokenizer_for_field(field)
+            .map_err(|e| Error::Search(format!("No analyzer for field: {e}")))?;
+
+        let mut terms = Vec::new();
+        {
+            let mut stream = analyzer.token_stream(text);
+            stream.process(&mut |token| terms.push(Term::from_field_text(field, &token.text)));
+        }
+
+        Ok(match terms.len() {
+            0 => None,
+            1 => Some(
+                Box::new(TermQuery::new(terms.remove(0), IndexRecordOption::Basic))
+                    as Box<dyn Query>,
+            ),
+            _ => Some(Box::new(PhraseQuery::new(terms)) as Box<dyn Query>),
         })
     }
 
@@ -378,6 +450,11 @@ fn stored_i64(doc: &tantivy::TantivyDocument, field: tantivy::schema::Field) -> 
         tantivy::schema::OwnedValue::I64(value) => Some(*value),
         _ => None,
     }
+}
+
+/// Wrap a filter so it contributes nothing to the relevance score.
+fn unscored(query: Box<dyn Query>) -> Box<dyn Query> {
+    Box::new(ConstScoreQuery::new(query, 0.0))
 }
 
 #[cfg(test)]
@@ -1242,5 +1319,250 @@ mod card_tests {
         assert_eq!(card.image_url, None);
         assert_eq!(card.feed_title, None);
         assert_eq!(card.feed_id, Some(12), "feed_id is always indexed");
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+    use crate::db::models::Recipe;
+    use crate::indexer::extras::IndexExtras;
+    use crate::indexer::filters::SearchFilters;
+    use chrono::TimeZone;
+    use tempfile::{tempdir, TempDir};
+
+    struct Fixture {
+        index: SearchIndex,
+        _dir: TempDir,
+    }
+
+    struct Spec {
+        id: i64,
+        title: &'static str,
+        feed_id: i64,
+        tags: &'static [&'static str],
+        ingredients: &'static [&'static str],
+        total_time: Option<i64>,
+        servings: Option<i64>,
+        difficulty: Option<&'static str>,
+        locale: Option<&'static str>,
+        created_day: u32,
+    }
+
+    fn recipe(spec: &Spec) -> Recipe {
+        Recipe {
+            id: spec.id,
+            feed_id: spec.feed_id,
+            external_id: format!("ext-{}", spec.id),
+            title: spec.title.to_string(),
+            source_url: None,
+            enclosure_url: format!("https://example.com/{}.cook", spec.id),
+            content: Some("Cook it.".to_string()),
+            summary: None,
+            servings: spec.servings,
+            total_time_minutes: spec.total_time,
+            active_time_minutes: None,
+            difficulty: spec.difficulty.map(str::to_string),
+            image_url: None,
+            published_at: None,
+            updated_at: None,
+            indexed_at: None,
+            created_at: chrono::Utc
+                .with_ymd_and_hms(2026, 1, spec.created_day, 0, 0, 0)
+                .unwrap(),
+            content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
+            locale: spec.locale.map(str::to_string),
+            locale_source: None,
+        }
+    }
+
+    fn fixture(specs: &[Spec]) -> Fixture {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+        for spec in specs {
+            let extras = IndexExtras {
+                file_path: None,
+                tags: strings(spec.tags),
+                ingredients: strings(spec.ingredients),
+                feed_title: None,
+            };
+            index
+                .index_recipe_full(&mut writer, &recipe(spec), &extras)
+                .unwrap();
+        }
+        index.commit(&mut writer).unwrap();
+        Fixture { index, _dir: dir }
+    }
+
+    /// Four recipes over two feeds, two languages and four creation days.
+    fn corpus() -> Fixture {
+        fixture(&[
+            Spec {
+                id: 1,
+                title: "Vegan Chocolate Cake",
+                feed_id: 10,
+                tags: &["vegan", "desserts"],
+                ingredients: &["cocoa", "flour"],
+                total_time: Some(60),
+                servings: Some(8),
+                difficulty: Some("Medium"),
+                locale: Some("en"),
+                created_day: 1,
+            },
+            Spec {
+                id: 2,
+                title: "Garlic Lemon Chicken",
+                feed_id: 10,
+                tags: &["dinner"],
+                ingredients: &["garlic", "lemon", "chicken thigh"],
+                total_time: Some(30),
+                servings: Some(4),
+                difficulty: Some("easy"),
+                locale: Some("en"),
+                created_day: 3,
+            },
+            Spec {
+                id: 3,
+                title: "Peanut Noodles",
+                feed_id: 20,
+                tags: &["dinner", "vegan"],
+                ingredients: &["peanut butter", "noodles", "garlic"],
+                total_time: Some(15),
+                servings: Some(2),
+                difficulty: Some("easy"),
+                locale: Some("en"),
+                created_day: 2,
+            },
+            Spec {
+                id: 4,
+                title: "Zitronenkuchen",
+                feed_id: 20,
+                tags: &["dessert"],
+                ingredients: &["lemon", "flour"],
+                total_time: None,
+                servings: None,
+                difficulty: None,
+                locale: Some("de"),
+                created_day: 4,
+            },
+        ])
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn query(q: &str, locale: Option<&str>) -> SearchQuery {
+        SearchQuery {
+            q: q.to_string(),
+            page: 1,
+            limit: 50,
+            locale: locale.map(str::to_string),
+        }
+    }
+
+    /// Matching ids, sorted, for relevance searches (order is not under test).
+    fn ids(fixture: &Fixture, q: &str, locale: Option<&str>, filters: &SearchFilters) -> Vec<i64> {
+        let mut ids: Vec<i64> = fixture
+            .index
+            .search_with(&query(q, locale), filters, 100)
+            .unwrap()
+            .results
+            .iter()
+            .map(|r| r.recipe_id)
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    fn tags(items: &[&str]) -> SearchFilters {
+        SearchFilters {
+            tags: strings(items),
+            ..SearchFilters::default()
+        }
+    }
+
+    #[test]
+    fn tags_filter_requires_every_tag() {
+        let f = corpus();
+        assert_eq!(ids(&f, "", None, &tags(&["vegan"])), vec![1, 3]);
+        assert_eq!(ids(&f, "", None, &tags(&["vegan", "dinner"])), vec![3]);
+    }
+
+    #[test]
+    fn tags_filter_is_stemmed_and_case_insensitive() {
+        let f = corpus();
+        // "Desserts" and the stored "desserts"/"dessert" all stem to "dessert".
+        assert_eq!(ids(&f, "", None, &tags(&["Desserts"])), vec![1, 4]);
+    }
+
+    #[test]
+    fn blank_filter_values_are_ignored() {
+        let f = corpus();
+        assert_eq!(ids(&f, "", None, &tags(&[" "])), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn include_ingredients_requires_every_ingredient() {
+        let f = corpus();
+        let filters = SearchFilters {
+            include_ingredients: strings(&["garlic", "lemon"]),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &filters), vec![2]);
+
+        let filters = SearchFilters {
+            include_ingredients: strings(&["garlic"]),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &filters), vec![2, 3]);
+    }
+
+    #[test]
+    fn multi_word_ingredient_matches_as_a_phrase() {
+        let f = corpus();
+        let filters = SearchFilters {
+            include_ingredients: strings(&["peanut butter"]),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &filters), vec![3]);
+
+        let filters = SearchFilters {
+            include_ingredients: strings(&["butter peanut"]),
+            ..SearchFilters::default()
+        };
+        assert!(ids(&f, "", None, &filters).is_empty(), "word order matters");
+    }
+
+    #[test]
+    fn exclude_ingredients_removes_any_match() {
+        let f = corpus();
+        let filters = SearchFilters {
+            exclude_ingredients: strings(&["peanut"]),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &filters), vec![1, 2, 4]);
+
+        let filters = SearchFilters {
+            exclude_ingredients: strings(&["garlic", "flour"]),
+            ..SearchFilters::default()
+        };
+        assert!(ids(&f, "", None, &filters).is_empty());
+    }
+
+    #[test]
+    fn filters_combine_with_query_and_locale() {
+        let f = corpus();
+        assert_eq!(ids(&f, "lemon", Some("de"), &tags(&["dessert"])), vec![4]);
+
+        let filters = SearchFilters {
+            include_ingredients: strings(&["garlic"]),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "lemon", None, &filters), vec![2]);
     }
 }
