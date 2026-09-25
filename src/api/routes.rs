@@ -17,6 +17,34 @@ use crate::api::handlers::{self as api_handlers, AppState};
 use crate::config::Settings;
 use crate::web::handlers as web_handlers;
 
+/// Every minute, forget rate-limit clients whose buckets have refilled
+/// (`forget_idle` returns how many remain), so the per-IP map does not grow with
+/// every address ever seen. The task holds only a weak reference and ends once
+/// the router, and with it the limiter, is dropped. Nothing is started outside
+/// a Tokio runtime.
+#[cfg(not(test))]
+fn spawn_idle_client_cleanup<T, F>(limiter: std::sync::Weak<T>, forget_idle: F)
+where
+    T: Send + Sync + 'static,
+    F: Fn(&T) -> usize + Send + 'static,
+{
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    runtime.spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.tick().await; // the first tick completes immediately
+        loop {
+            interval.tick().await;
+            let Some(limiter) = limiter.upgrade() else {
+                break;
+            };
+            let clients = forget_idle(&limiter);
+            tracing::debug!(clients, "rate limiter forgot idle clients");
+        }
+    });
+}
+
 /// Create the router with all endpoints (API + Web UI)
 #[cfg_attr(test, allow(unused_variables))]
 pub fn create_router(state: AppState, settings: &Settings) -> Router {
@@ -50,6 +78,10 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
                 .finish()
                 .expect("governor period and burst size are non-zero"),
         );
+        spawn_idle_client_cleanup(Arc::downgrade(governor_conf.limiter()), |limiter| {
+            limiter.retain_recent();
+            limiter.len()
+        });
         let governor_layer = GovernorLayer {
             config: governor_conf,
         };
