@@ -284,7 +284,7 @@ impl SearchIndex {
         } else {
             query_parser
                 .parse_query(&query.q)
-                .map_err(|e| Error::Search(format!("Invalid query: {e}")))?
+                .map_err(|e| Error::Validation(format!("Invalid query: {e}")))?
         };
 
         let mut clauses: Vec<(Occur, Box<dyn Query>)> = vec![(Occur::Must, parsed_query)];
@@ -1968,5 +1968,23 @@ mod filter_tests {
         assert_eq!(page1, vec![5, 4]);
         assert_eq!(page2, vec![3, 2]);
         assert_eq!(page3, vec![1]);
+    }
+
+    #[test]
+    fn malformed_query_is_a_validation_error() {
+        let f = corpus();
+        let err = f
+            .index
+            .search_with(
+                &query("nosuchfield:pasta", None),
+                &SearchFilters::default(),
+                SortOrder::Relevance,
+                100,
+            )
+            .unwrap_err();
+        assert!(
+            matches!(&err, Error::Validation(message) if message.contains("Invalid query")),
+            "unexpected error: {err:?}"
+        );
     }
 }
