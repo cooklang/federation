@@ -1,7 +1,10 @@
 //! Rate-limit key and quota for the public API.
 
+use axum::body::Body;
 use axum::extract::ConnectInfo;
-use axum::http::{HeaderMap, Request};
+use axum::http::{header, HeaderMap, HeaderValue, Request, Response, StatusCode};
+use axum::response::IntoResponse;
+use axum::Json;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tower_governor::key_extractor::KeyExtractor;
@@ -75,6 +78,36 @@ pub fn governor_burst(requests_per_second: u64) -> u32 {
     u32::try_from(requests_per_second.saturating_mul(2))
         .unwrap_or(u32::MAX)
         .max(1)
+}
+
+/// Response for a request the limiter turned away, in the API's JSON error
+/// format. A 429 keeps tower_governor's `x-ratelimit-after` header and adds
+/// the standard `Retry-After` with the same number of seconds.
+pub fn rate_limit_error_response(error: GovernorError) -> Response<Body> {
+    let (status, message, headers) = match error {
+        GovernorError::TooManyRequests { wait_time, headers } => {
+            let mut headers = headers.unwrap_or_default();
+            headers.insert(header::RETRY_AFTER, HeaderValue::from(wait_time));
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many requests, try again shortly".to_string(),
+                headers,
+            )
+        }
+        GovernorError::UnableToExtractKey => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Internal server error".to_string(),
+            HeaderMap::new(),
+        ),
+        GovernorError::Other { code, msg, headers } => (
+            code,
+            msg.unwrap_or_else(|| "Request rejected".to_string()),
+            headers.unwrap_or_default(),
+        ),
+    };
+    let mut response = (status, Json(serde_json::json!({ "error": message }))).into_response();
+    response.headers_mut().extend(headers);
+    response
 }
 
 #[cfg(test)]

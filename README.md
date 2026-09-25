@@ -181,7 +181,10 @@ cargo run -- cleanup
 ## API Endpoints
 
 The API is read-only JSON. Errors are `{"error": "message"}` with a 4xx/5xx
-status. `/api/*` is rate-limited per client IP (see `API_RATE_LIMIT`).
+status, including for query strings that do not parse (`page=abc`, or a
+parameter given twice: list filters are comma-separated). `/api/*` is
+rate-limited per client IP (see `API_RATE_LIMIT`); a limited request gets
+`429` with a `Retry-After` header (seconds).
 
 ### Health & Status
 - `GET /health` - Health check

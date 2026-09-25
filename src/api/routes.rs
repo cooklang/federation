@@ -8,7 +8,9 @@ use tower_http::{
 
 #[cfg(not(test))]
 use {
-    crate::api::rate_limit::{governor_burst, governor_period, ClientIpKeyExtractor},
+    crate::api::rate_limit::{
+        governor_burst, governor_period, rate_limit_error_response, ClientIpKeyExtractor,
+    },
     std::sync::Arc,
     tower_governor::{governor::GovernorConfigBuilder, GovernorLayer},
 };
@@ -75,6 +77,7 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
                 .key_extractor(ClientIpKeyExtractor)
                 .period(governor_period(settings.server.api_rate_limit))
                 .burst_size(governor_burst(settings.server.api_rate_limit))
+                .error_handler(rate_limit_error_response)
                 .finish()
                 .expect("governor period and burst size are non-zero"),
         );
@@ -601,22 +604,58 @@ mod tests {
         assert!(json["error"].as_str().unwrap().contains("tag_limit"));
     }
 
-    /// A repeated list parameter is not merged: axum's `Query` rejects the
-    /// duplicate key before the handler runs. Lists are comma-separated.
+    /// A repeated list parameter is not merged: the duplicate key is rejected
+    /// before the handler runs, with the API's JSON error body. Lists are
+    /// comma-separated.
     #[tokio::test]
-    async fn search_rejects_a_repeated_list_parameter() {
+    async fn search_rejects_a_repeated_list_parameter_with_a_json_error() {
         let (state, _index_dir) = create_test_state().await;
-        let app = create_router(state.clone(), &state.settings);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/search?tags=a&tags=b")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let (status, json) = get_json(&state, "/api/search?tags=a&tags=b").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error = json["error"].as_str().unwrap();
+        assert!(error.contains("tags"), "{json}");
+        assert!(error.contains("comma-separated"), "{json}");
+    }
+
+    /// Query strings axum cannot deserialize get the same JSON error body as
+    /// any other validation error, not axum's plain-text rejection.
+    #[tokio::test]
+    async fn unparseable_query_strings_return_json_errors() {
+        let (state, _index_dir) = create_test_state().await;
+
+        for (uri, needle) in [
+            ("/api/search?page=abc", "page"),
+            ("/api/search?limit=abc", "limit"),
+            ("/api/search?page=-1", "page"),
+            ("/api/facets?tag_limit=1&tag_limit=2", "tag_limit"),
+        ] {
+            let (status, json) = get_json(&state, uri).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+            assert!(
+                json["error"].as_str().unwrap().contains(needle),
+                "{uri}: {json}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn website_unparseable_query_string_renders_the_form_with_an_inline_error() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        for (uri, needle) in [
+            ("/?q=pasta&page=abc", "page"),
+            ("/?q=pasta&tags=a&tags=b", "tags"),
+        ] {
+            let (status, html) = get_text(&state, uri).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+            assert!(html.contains(r#"id="search-error""#), "{uri}: {html}");
+            assert!(html.contains(needle), "{uri}: {html}");
+            // The search box keeps what was typed.
+            assert!(html.contains(r#"value="pasta""#), "{uri}: {html}");
+            // An HTML page, not the API's JSON error body.
+            assert!(!html.trim_start().starts_with('{'), "{uri}");
+        }
     }
 
     /// The website's language dropdown is built from `api::facets::language_facets`

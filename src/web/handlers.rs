@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, RawQuery, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer};
 use crate::{
     api::filters::FilterParams,
     api::handlers::AppState,
+    api::query::ValidatedQuery,
     db,
     error::Error,
     indexer::filters::SortOrder,
@@ -138,25 +139,63 @@ fn default_page() -> usize {
     1
 }
 
+impl SearchParams {
+    /// Only the search box and language of a query string that did not
+    /// deserialize (first value of each), so the error page keeps them.
+    fn search_box_only(raw_query: &str) -> Self {
+        let mut params = Self {
+            q: None,
+            locale: None,
+            page: default_page(),
+            filters: FilterParams::default(),
+        };
+        for (key, value) in url::form_urlencoded::parse(raw_query.as_bytes()) {
+            let slot = match key.as_ref() {
+                "q" => &mut params.q,
+                "locale" => &mut params.locale,
+                _ => continue,
+            };
+            if slot.is_none() && !value.is_empty() {
+                *slot = Some(value.into_owned());
+            }
+        }
+        params
+    }
+}
+
 /// GET / - Search page
 pub async fn index(
     State(state): State<AppState>,
-    Query(params): Query<SearchParams>,
+    params: std::result::Result<ValidatedQuery<SearchParams>, Error>,
+    RawQuery(raw_query): RawQuery,
 ) -> Result<Response> {
+    // A bad filter, a query string that does not deserialize (`page=abc`, a
+    // repeated key) or a malformed query is the user's typo, not a failure:
+    // the page is re-rendered with the message next to the search box and the
+    // input kept, instead of the API's JSON error body.
+    let mut error_message = String::new();
+    let params = match params {
+        Ok(ValidatedQuery(params)) => params,
+        Err(Error::Validation(message)) => {
+            error_message = message;
+            SearchParams::search_box_only(raw_query.as_deref().unwrap_or_default())
+        }
+        Err(other) => return Err(other),
+    };
     let query = params.q.clone().unwrap_or_default();
     let locale = params.locale.clone().unwrap_or_default();
 
-    // A bad filter or a malformed query is the user's typo, not a failure: the
-    // page is re-rendered with the message next to the search box and the
-    // input kept, instead of the API's JSON error body.
-    let mut error_message = String::new();
-    let parsed = match params.filters.parse() {
-        Ok(parsed) => Some(parsed),
-        Err(Error::Validation(message)) => {
-            error_message = message;
-            None
+    let parsed = if !error_message.is_empty() {
+        None
+    } else {
+        match params.filters.parse() {
+            Ok(parsed) => Some(parsed),
+            Err(Error::Validation(message)) => {
+                error_message = message;
+                None
+            }
+            Err(other) => return Err(other),
         }
-        Err(other) => return Err(other),
     };
     let filters_active = match &parsed {
         Some((filters, sort)) => !filters.is_empty() || *sort != SortOrder::Relevance,

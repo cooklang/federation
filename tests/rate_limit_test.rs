@@ -184,3 +184,43 @@ async fn the_configured_rate_is_requests_per_second() {
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
     assert_eq!(get_stats(&app, peer, None).await, OK);
 }
+
+#[tokio::test]
+async fn a_limited_request_gets_a_json_error_and_retry_headers() {
+    // 1 request/s, burst of 2: the third request in a row is limited.
+    let (app, _index) = router(1).await;
+    let peer = "203.0.113.7:5000";
+    assert_eq!(burst(&app, peer, None, 2).await, [OK, OK]);
+
+    let mut request = Request::builder()
+        .uri("/api/stats")
+        .body(Body::empty())
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo::<SocketAddr>(peer.parse().unwrap()));
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), LIMITED);
+
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .unwrap_or_else(|| panic!("missing {name} header"))
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
+    assert!(header("content-type").starts_with("application/json"));
+    let wait: u64 = header("x-ratelimit-after").parse().unwrap();
+    assert_eq!(header("retry-after"), wait.to_string());
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({ "error": "Too many requests, try again shortly" })
+    );
+}

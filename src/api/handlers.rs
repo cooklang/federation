@@ -1,11 +1,13 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     Json,
 };
 use std::sync::Arc;
 use tracing::debug;
 
-use crate::{api::models::*, db, indexer::search::SearchQuery, Error, Result};
+use crate::{
+    api::models::*, api::query::ValidatedQuery, db, indexer::search::SearchQuery, Error, Result,
+};
 
 /// Shared application state
 #[derive(Clone)]
@@ -20,7 +22,7 @@ pub struct AppState {
 /// GET /api/search - Search recipes
 pub async fn search_recipes(
     State(state): State<AppState>,
-    Query(params): Query<SearchParams>,
+    ValidatedQuery(params): ValidatedQuery<SearchParams>,
 ) -> Result<Json<SearchResponse>> {
     debug!("Search request: {:?}", params);
 
@@ -84,7 +86,7 @@ pub async fn search_recipes(
 /// GET /api/facets - Tag, language and difficulty counts for filter UIs
 pub async fn get_facets(
     State(state): State<AppState>,
-    Query(params): Query<FacetsParams>,
+    ValidatedQuery(params): ValidatedQuery<FacetsParams>,
 ) -> Result<Json<FacetsResponse>> {
     debug!("Facets request: {:?}", params);
 
@@ -169,7 +171,7 @@ pub async fn download_recipe(State(state): State<AppState>, Path(id): Path<i64>)
 /// GET /api/feeds - List all feeds
 pub async fn list_feeds(
     State(state): State<AppState>,
-    Query(params): Query<FeedListParams>,
+    ValidatedQuery(params): ValidatedQuery<FeedListParams>,
 ) -> Result<Json<FeedsResponse>> {
     debug!("List feeds request: {:?}", params);
 
