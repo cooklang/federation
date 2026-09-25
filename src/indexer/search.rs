@@ -133,19 +133,29 @@ impl SearchIndex {
         })
     }
 
-    /// Get index writer
-    pub fn writer(&self) -> Result<IndexWriter> {
+    /// Open a Tantivy writer without the writer gate. Private so nothing can
+    /// bypass [`Self::locked_writer`].
+    fn open_writer(&self) -> Result<IndexWriter> {
         self.index
             .writer(50_000_000) // 50MB buffer
             .map_err(|e| Error::Search(format!("Failed to create writer: {e}")))
     }
 
+    /// An ungated writer for the crate's unit tests, which own their index.
+    /// Everything else, integration tests included, uses
+    /// [`Self::locked_writer`].
+    #[cfg(test)]
+    pub(crate) fn writer(&self) -> Result<IndexWriter> {
+        self.open_writer()
+    }
+
     /// Get an index writer, waiting for any other writer in this process to
-    /// finish. Every production writer (crawler, GitHub indexer, CLI
-    /// commands) goes through this; [`Self::writer`] is for tests.
+    /// finish. Every writer (crawler, GitHub indexer, CLI commands) goes
+    /// through this: Tantivy allows one writer per index, and a second one
+    /// fails on the index lock instead of waiting.
     pub async fn locked_writer(&self) -> Result<LockedWriter<'_>> {
         let gate = self.writer_gate.lock().await;
-        let writer = self.writer()?;
+        let writer = self.open_writer()?;
         Ok(LockedWriter {
             writer,
             _gate: gate,
@@ -243,9 +253,11 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Index a recipe without a feed title. Kept for tests and simple callers;
-    /// production paths load [`IndexExtras`] and call [`Self::index_recipe_full`].
-    pub fn index_recipe(
+    /// Index a recipe without a feed title: shorthand for the crate's unit
+    /// tests. Everything else loads [`IndexExtras`] and calls
+    /// [`Self::index_recipe_full`].
+    #[cfg(test)]
+    pub(crate) fn index_recipe(
         &self,
         writer: &mut IndexWriter,
         recipe: &Recipe,
