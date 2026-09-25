@@ -136,11 +136,14 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
 
     // Initialize search index
     let index_path = std::path::PathBuf::from(&settings.search.index_path);
-    let search_index = SearchIndex::new(&index_path)?;
+    let search_index = Arc::new(SearchIndex::new(&index_path)?);
     info!("Search index initialized at {:?}", index_path);
 
-    // Initialize crawler
-    let crawler = Arc::new(federation::crawler::Crawler::new(settings.crawler.clone())?);
+    // Initialize crawler; it indexes the recipes each crawl creates or updates
+    let crawler = Arc::new(
+        federation::crawler::Crawler::new(settings.crawler.clone())?
+            .with_search_index(search_index.clone()),
+    );
     info!("Crawler initialized");
 
     // Start background scheduler
@@ -154,9 +157,6 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
         "Background scheduler started (interval: {}s)",
         settings.crawler.interval_seconds
     );
-
-    // Wrap search index in Arc for sharing
-    let search_index = Arc::new(search_index);
 
     // Initialize GitHub indexer if enabled
     let github_indexer = {

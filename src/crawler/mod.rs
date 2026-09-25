@@ -8,7 +8,9 @@ pub mod scheduler;
 use crate::config::CrawlerConfig;
 use crate::db::{self, models::*, DbPool};
 use crate::error::{Error, Result};
+use crate::indexer::extras::reindex_recipes;
 use crate::indexer::parse_cooklang_full;
+use crate::indexer::search::SearchIndex;
 use crate::utils::validation;
 use fetcher::{http_date, FetchOutcome, Fetcher, RateLimiter};
 use parser::{parse_feed, ParsedEntry};
@@ -21,9 +23,9 @@ use tracing::{debug, error, info, warn};
 #[derive(Debug)]
 enum ProcessResult {
     /// New recipe was created
-    New,
+    New(i64),
     /// Existing recipe was updated
-    Updated,
+    Updated(i64),
     /// Recipe was skipped (no changes detected)
     Skipped,
 }
@@ -33,6 +35,9 @@ pub struct Crawler {
     fetcher: Fetcher,
     rate_limiters: Arc<Mutex<HashMap<String, Arc<RateLimiter>>>>,
     config: CrawlerConfig,
+    /// When set, recipes a crawl creates or updates are (re)indexed at the end
+    /// of that feed's crawl. CLI crawls leave it unset.
+    search_index: Option<Arc<SearchIndex>>,
 }
 
 impl Crawler {
@@ -43,7 +48,32 @@ impl Crawler {
             fetcher,
             rate_limiters: Arc::new(Mutex::new(HashMap::new())),
             config,
+            search_index: None,
         })
+    }
+
+    /// Keep this search index in step with every crawl.
+    pub fn with_search_index(mut self, search_index: Arc<SearchIndex>) -> Self {
+        self.search_index = Some(search_index);
+        self
+    }
+
+    /// (Re)index recipes this crawl created or updated, with their tags. A
+    /// failure is logged, not returned: the database is already up to date,
+    /// and the next change or a `backfill-locales` run re-indexes the recipe.
+    async fn index_changed_recipes(&self, pool: &DbPool, recipe_ids: &[i64]) {
+        let Some(search_index) = &self.search_index else {
+            return;
+        };
+
+        match reindex_recipes(pool, search_index, recipe_ids).await {
+            Ok(count) => debug!("Indexed {} changed recipes", count),
+            Err(e) => warn!(
+                "Failed to update the search index for {} recipes: {}",
+                recipe_ids.len(),
+                e
+            ),
+        }
     }
 
     /// Crawl a single feed by URL
@@ -167,16 +197,26 @@ impl Crawler {
         let mut updated_recipes = 0;
         let mut skipped_recipes = 0;
 
+        let mut changed_recipe_ids = Vec::new();
+
         for entry in parsed_feed.entries {
             match self.process_entry(pool, feed.id, &entry).await {
-                Ok(ProcessResult::New) => new_recipes += 1,
-                Ok(ProcessResult::Updated) => updated_recipes += 1,
+                Ok(ProcessResult::New(recipe_id)) => {
+                    new_recipes += 1;
+                    changed_recipe_ids.push(recipe_id);
+                }
+                Ok(ProcessResult::Updated(recipe_id)) => {
+                    updated_recipes += 1;
+                    changed_recipe_ids.push(recipe_id);
+                }
                 Ok(ProcessResult::Skipped) => skipped_recipes += 1,
                 Err(e) => {
                     warn!("Failed to process entry {}: {}", entry.id, e);
                 }
             }
         }
+
+        self.index_changed_recipes(pool, &changed_recipe_ids).await;
 
         // Mark feed as active (reset error count)
         db::feeds::update_feed_status(pool, feed.id, "active", 0, None).await?;
@@ -389,7 +429,7 @@ impl Crawler {
                 }
 
                 debug!("Updated recipe {}: {}", recipe.id, recipe.title);
-                ProcessResult::Updated
+                ProcessResult::Updated(recipe.id)
             }
             None => {
                 // Determine image URL: prefer feed entry image, fallback to Cooklang metadata
@@ -435,7 +475,7 @@ impl Crawler {
                 }
 
                 debug!("Created new recipe {}: {}", recipe.id, recipe.title);
-                ProcessResult::New
+                ProcessResult::New(recipe.id)
             }
         };
 
@@ -534,5 +574,125 @@ mod tests {
             result,
             Some("https://example.com/images/photo.jpg".to_string())
         );
+    }
+
+    fn test_config() -> CrawlerConfig {
+        CrawlerConfig {
+            interval_seconds: 3600,
+            max_feed_size: 5_242_880,
+            max_recipe_size: 1_048_576,
+            rate_limit: 1,
+            user_agent: "TestBot/1.0".to_string(),
+        }
+    }
+
+    async fn seeded_pool() -> (DbPool, i64) {
+        use crate::db::models::{NewFeed, NewRecipe};
+
+        let pool = crate::db::init_pool("sqlite::memory:").await.unwrap();
+        crate::db::run_migrations(&pool).await.unwrap();
+        let feed = db::feeds::create_feed(
+            &pool,
+            &NewFeed {
+                url: "https://example.com/feed.xml".to_string(),
+                title: Some("Jane's Kitchen".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        let recipe = db::recipes::create_recipe(
+            &pool,
+            &NewRecipe {
+                feed_id: feed.id,
+                external_id: "cookies".to_string(),
+                title: "Chocolate Chip Cookies".to_string(),
+                source_url: None,
+                enclosure_url: "https://example.com/cookies.cook".to_string(),
+                content: Some("Mix @flour{250%g}.".to_string()),
+                summary: None,
+                servings: Some(24),
+                total_time_minutes: Some(45),
+                active_time_minutes: None,
+                difficulty: Some("easy".to_string()),
+                image_url: None,
+                published_at: None,
+                content_hash: None,
+                content_etag: None,
+                content_last_modified: None,
+                feed_entry_updated: None,
+                locale: None,
+                locale_source: None,
+            },
+        )
+        .await
+        .unwrap();
+        db::tags::add_recipe_tags(&pool, recipe.id, &["dessert".to_string()])
+            .await
+            .unwrap();
+        (pool, recipe.id)
+    }
+
+    #[tokio::test]
+    async fn changed_recipes_are_indexed_with_their_tags() {
+        use crate::indexer::filters::{SearchFilters, SortOrder};
+        use crate::indexer::{SearchIndex, SearchQuery};
+
+        let (pool, recipe_id) = seeded_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let index = Arc::new(SearchIndex::new(dir.path()).unwrap());
+        let crawler = Crawler::new(test_config())
+            .unwrap()
+            .with_search_index(index.clone());
+
+        crawler.index_changed_recipes(&pool, &[recipe_id]).await;
+
+        let results = index
+            .search_with(
+                &SearchQuery {
+                    q: String::new(),
+                    page: 1,
+                    limit: 10,
+                    locale: None,
+                },
+                &SearchFilters {
+                    tags: vec!["dessert".to_string()],
+                    max_time: Some(60),
+                    ..SearchFilters::default()
+                },
+                SortOrder::Relevance,
+                100,
+            )
+            .unwrap();
+        assert_eq!(results.results.len(), 1);
+        assert_eq!(results.results[0].recipe_id, recipe_id);
+        assert_eq!(
+            results.results[0].feed_title.as_deref(),
+            Some("Jane's Kitchen")
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_search_index_changed_recipes_are_left_alone() {
+        let (pool, recipe_id) = seeded_pool().await;
+        let crawler = Crawler::new(test_config()).unwrap();
+        // Must neither panic nor error: CLI crawls run without an index.
+        crawler.index_changed_recipes(&pool, &[recipe_id]).await;
+    }
+
+    #[tokio::test]
+    async fn an_indexing_failure_is_logged_not_fatal() {
+        use crate::indexer::SearchIndex;
+
+        let (pool, _) = seeded_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let index = Arc::new(SearchIndex::new(dir.path()).unwrap());
+        let crawler = Crawler::new(test_config())
+            .unwrap()
+            .with_search_index(index.clone());
+
+        // A recipe id with no row makes `reindex_recipes` fail; the crawl
+        // must carry on, and the writer gate must be free afterwards.
+        crawler.index_changed_recipes(&pool, &[i64::MAX]).await;
+        assert!(index.locked_writer().await.is_ok());
     }
 }
