@@ -1,7 +1,7 @@
 use crate::db::models::Recipe;
 use crate::error::{Error, Result};
 use crate::indexer::extras::IndexExtras;
-use crate::indexer::filters::{normalize_difficulty, SearchFilters};
+use crate::indexer::filters::{normalize_difficulty, SearchFilters, SortOrder};
 use crate::indexer::locale::normalize_code;
 use crate::indexer::plain_text::instructions_text;
 use crate::indexer::schema::RecipeSchema;
@@ -14,7 +14,7 @@ use tantivy::query::{
 };
 use tantivy::schema::IndexRecordOption;
 use tantivy::tokenizer::TokenStream;
-use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
+use tantivy::{doc, DocAddress, Index, IndexReader, IndexWriter, Order, ReloadPolicy, Term};
 use tracing::{debug, info};
 
 pub struct SearchIndex {
@@ -233,14 +233,21 @@ impl SearchIndex {
 
     /// Search recipes using unified query string
     pub fn search(&self, query: &SearchQuery, max_limit: usize) -> Result<SearchResults> {
-        self.search_with(query, &SearchFilters::default(), max_limit)
+        self.search_with(
+            query,
+            &SearchFilters::default(),
+            SortOrder::Relevance,
+            max_limit,
+        )
     }
 
-    /// Search with structured filters ANDed onto the parsed query string.
+    /// Search with structured filters ANDed onto the parsed query string,
+    /// ordered by relevance or by `indexed_at` (newest first).
     pub fn search_with(
         &self,
         query: &SearchQuery,
         filters: &SearchFilters,
+        sort: SortOrder,
         max_limit: usize,
     ) -> Result<SearchResults> {
         let searcher = self.reader.searcher();
@@ -302,17 +309,39 @@ impl SearchIndex {
             Box::new(BooleanQuery::new(clauses))
         };
 
-        // Calculate offset
-        let offset = (query.page.saturating_sub(1)) * query.limit;
-        let limit = query.limit.min(max_limit);
+        // A zero limit would panic inside TopDocs and divide by zero below.
+        let limit = query.limit.min(max_limit).max(1);
+        let offset = query.page.saturating_sub(1) * limit;
 
         // Execute search: the page of hits plus a full count in one pass.
-        let (top_docs, total) = searcher
-            .search(
-                &*tantivy_query,
-                &(TopDocs::with_limit(limit).and_offset(offset), Count),
-            )
-            .map_err(|e| Error::Search(format!("Search failed: {e}")))?;
+        let (top_docs, total): (Vec<(f32, DocAddress)>, usize) = match sort {
+            SortOrder::Relevance => searcher
+                .search(
+                    &*tantivy_query,
+                    &(TopDocs::with_limit(limit).and_offset(offset), Count),
+                )
+                .map_err(|e| Error::Search(format!("Search failed: {e}")))?,
+            SortOrder::Newest => {
+                let (docs, total) = searcher
+                    .search(
+                        &*tantivy_query,
+                        &(
+                            TopDocs::with_limit(limit)
+                                .and_offset(offset)
+                                .order_by_fast_field::<i64>("indexed_at", Order::Desc),
+                            Count,
+                        ),
+                    )
+                    .map_err(|e| Error::Search(format!("Search failed: {e}")))?;
+                // Scores are meaningless when ordering by date.
+                (
+                    docs.into_iter()
+                        .map(|(_, address)| (0.0, address))
+                        .collect(),
+                    total,
+                )
+            }
+        };
 
         let results: Vec<SearchResult> = top_docs
             .into_iter()
@@ -1372,7 +1401,7 @@ mod filter_tests {
     use super::*;
     use crate::db::models::Recipe;
     use crate::indexer::extras::IndexExtras;
-    use crate::indexer::filters::SearchFilters;
+    use crate::indexer::filters::{SearchFilters, SortOrder};
     use chrono::TimeZone;
     use tempfile::{tempdir, TempDir};
 
@@ -1514,7 +1543,7 @@ mod filter_tests {
     fn ids(fixture: &Fixture, q: &str, locale: Option<&str>, filters: &SearchFilters) -> Vec<i64> {
         let mut ids: Vec<i64> = fixture
             .index
-            .search_with(&query(q, locale), filters, 100)
+            .search_with(&query(q, locale), filters, SortOrder::Relevance, 100)
             .unwrap()
             .results
             .iter()
@@ -1712,5 +1741,106 @@ mod filter_tests {
             ..SearchFilters::default()
         };
         assert_eq!(ids(&f, "garlic", None, &filters), vec![3]);
+    }
+
+    /// Ids in the order returned, newest first.
+    fn newest_ids(fixture: &Fixture, q: &str, page: usize, limit: usize) -> Vec<i64> {
+        let query = SearchQuery {
+            q: q.to_string(),
+            page,
+            limit,
+            locale: None,
+        };
+        fixture
+            .index
+            .search_with(&query, &SearchFilters::default(), SortOrder::Newest, 100)
+            .unwrap()
+            .results
+            .iter()
+            .map(|r| r.recipe_id)
+            .collect()
+    }
+
+    #[test]
+    fn newest_orders_by_creation_time_descending() {
+        let f = corpus();
+        // Created on days 1, 3, 2, 4 respectively.
+        assert_eq!(newest_ids(&f, "", 1, 10), vec![4, 2, 3, 1]);
+    }
+
+    #[test]
+    fn newest_applies_to_query_matches_and_pages() {
+        let f = corpus();
+        assert_eq!(newest_ids(&f, "lemon", 1, 10), vec![4, 2]);
+        assert_eq!(newest_ids(&f, "", 2, 2), vec![3, 1]);
+    }
+
+    #[test]
+    fn a_zero_limit_returns_one_result_instead_of_panicking() {
+        let f = corpus();
+        let query = SearchQuery {
+            q: String::new(),
+            page: 1,
+            limit: 0,
+            locale: None,
+        };
+        let results = f
+            .index
+            .search_with(&query, &SearchFilters::default(), SortOrder::Relevance, 100)
+            .unwrap();
+        assert_eq!(results.results.len(), 1);
+        assert_eq!(results.total, 4);
+        assert_eq!(results.total_pages, 4);
+    }
+
+    #[test]
+    fn newest_ties_are_broken_deterministically_across_pages() {
+        // All five recipes share the same creation day, so `indexed_at` ties;
+        // paging must still visit each recipe exactly once, in a stable order.
+        let specs: Vec<Spec> = (1..=5i64)
+            .map(|id| Spec {
+                id,
+                title: "Same Day Recipe",
+                feed_id: 1,
+                tags: &[],
+                ingredients: &[],
+                total_time: None,
+                servings: None,
+                difficulty: None,
+                locale: Some("en"),
+                created_day: 1,
+            })
+            .collect();
+        let f = fixture(&specs);
+
+        let page1 = newest_ids(&f, "", 1, 2);
+        let page2 = newest_ids(&f, "", 2, 2);
+        let page3 = newest_ids(&f, "", 3, 2);
+
+        let mut all: Vec<i64> = page1
+            .iter()
+            .chain(page2.iter())
+            .chain(page3.iter())
+            .copied()
+            .collect();
+        all.sort();
+        assert_eq!(
+            all,
+            vec![1, 2, 3, 4, 5],
+            "paging must visit every tied recipe exactly once, with no duplicates"
+        );
+
+        // Re-running the same pages must return the same order: paging depends
+        // on a stable tie-break, not incidental hash or heap ordering.
+        assert_eq!(
+            newest_ids(&f, "", 1, 2),
+            page1,
+            "page 1 must be deterministic"
+        );
+        assert_eq!(
+            newest_ids(&f, "", 2, 2),
+            page2,
+            "page 2 must be deterministic"
+        );
     }
 }
