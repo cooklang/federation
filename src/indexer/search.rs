@@ -117,9 +117,11 @@ impl SearchIndex {
         let term = Term::from_field_i64(self.schema.id, recipe.id);
         writer.delete_term(term);
 
-        // `indexed_at` in the DB is optional; the row's creation time is when the
-        // recipe entered the federation, which is what `sort=newest` means.
-        let indexed_at = recipe.indexed_at.unwrap_or(recipe.created_at).timestamp();
+        // `sort=newest` means "when the recipe entered the federation", which is
+        // `created_at`. Deliberately ignore the DB `indexed_at` column here: it
+        // changes on re-index, and preferring it would bubble old recipes to the
+        // top every time they get re-touched.
+        let indexed_at = recipe.created_at.timestamp();
 
         let mut doc = doc!(
             self.schema.id => recipe.id,
@@ -1105,6 +1107,65 @@ mod card_tests {
                 .and_then(|v| v.as_str()),
             Some("easy"),
             "difficulty is normalised at index time"
+        );
+    }
+
+    #[test]
+    fn index_recipe_full_ignores_db_indexed_at_in_favor_of_created_at() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+
+        let mut recipe = card_recipe();
+        // A later DB `indexed_at` must not win: `sort=newest` means "when the
+        // recipe entered the federation" (created_at), and re-indexing must not
+        // bubble old recipes to the top just because they were re-touched.
+        recipe.indexed_at = Some(created_at() + chrono::Duration::days(30));
+
+        index
+            .index_recipe_full(&mut writer, &recipe, &card_extras())
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+
+        let searcher = index.reader.searcher();
+        let top = searcher
+            .search(&tantivy::query::AllQuery, &TopDocs::with_limit(1))
+            .unwrap();
+        let doc = searcher.doc::<tantivy::TantivyDocument>(top[0].1).unwrap();
+
+        assert_eq!(
+            doc.get_first(index.schema.indexed_at)
+                .and_then(|v| v.as_i64()),
+            Some(created_at().timestamp()),
+            "indexed_at must always be created_at, never the DB indexed_at"
+        );
+    }
+
+    #[test]
+    fn index_recipe_full_stores_no_difficulty_when_whitespace_only() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+
+        let mut recipe = card_recipe();
+        recipe.difficulty = Some("   ".to_string());
+
+        index
+            .index_recipe_full(&mut writer, &recipe, &card_extras())
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+
+        let searcher = index.reader.searcher();
+        let top = searcher
+            .search(&tantivy::query::AllQuery, &TopDocs::with_limit(1))
+            .unwrap();
+        let doc = searcher.doc::<tantivy::TantivyDocument>(top[0].1).unwrap();
+
+        assert_eq!(
+            doc.get_first(index.schema.difficulty)
+                .and_then(|v| v.as_str()),
+            None,
+            "whitespace-only difficulty stores no difficulty field"
         );
     }
 }
