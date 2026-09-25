@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::models::Recipe;
 use crate::indexer::filters::normalize_difficulty;
 
-/// The difficulty values the `recipes.difficulty` column accepts (its `CHECK`
-/// constraint).
+/// The difficulty values the `recipes.difficulty` column accepts: its `CHECK`
+/// constraint in `migrations/001_init.sql:32`. Keep the two in step.
 const DIFFICULTIES: [&str; 3] = ["easy", "medium", "hard"];
 
 /// The servings, total time and difficulty of a recipe, as stored in the

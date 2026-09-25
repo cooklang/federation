@@ -400,3 +400,31 @@ async fn metadata_servings_time_and_difficulty_are_stored_and_filterable() {
     assert_eq!(after.total_time_minutes, None);
     assert_eq!(after.difficulty, None);
 }
+
+#[tokio::test]
+async fn an_update_that_does_not_parse_keeps_the_stored_facts() {
+    let h = Harness::new().await;
+    let mut repo = FakeRepo::new("alice", "recipes").await;
+    repo.set_files(&[(
+        "Stew.cook",
+        "---\nservings: 4\ntime: 1h 30min\ndifficulty: Medium\n---\nSimmer @beef{500%g}.\n",
+    )])
+    .await;
+    let feed_id = h.indexer(&repo).add_repository(&repo.url()).await.unwrap();
+    let recipe = db::recipes::list_all_recipes(&h.pool, 100, 0)
+        .await
+        .unwrap()
+        .remove(0);
+
+    // `@salt{%}` is a cooklang parse error.
+    let broken = "---\nservings: 6\n---\nSimmer @beef{500%g} and @salt{%}.\n";
+    assert!(federation::indexer::parse_cooklang_full(broken).is_err());
+    repo.set_files(&[("Stew.cook", broken)]).await;
+    h.indexer(&repo).index_repository(feed_id).await.unwrap();
+
+    let after = db::recipes::get_recipe(&h.pool, recipe.id).await.unwrap();
+    assert_eq!(after.content.as_deref(), Some(broken), "the update did run");
+    assert_eq!(after.servings, Some(4));
+    assert_eq!(after.total_time_minutes, Some(90));
+    assert_eq!(after.difficulty.as_deref(), Some("medium"));
+}

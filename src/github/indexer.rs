@@ -1,4 +1,5 @@
 use crate::github::{client::GitHubClient, config::GitHubConfig};
+use crate::indexer::recipe_facts::RecipeFacts;
 use crate::utils::resolve_image_url;
 use crate::{
     db::{
@@ -322,11 +323,13 @@ impl GitHubIndexer {
         let title = recipe_title(parsed.as_ref().ok(), file_path);
 
         // The file is the only source of a GitHub recipe's servings, total
-        // time and difficulty: a key removed upstream clears the column.
-        let facts = parsed
+        // time and difficulty: a key removed from a file that parses clears the
+        // column. A file that does not parse tells us nothing, so an update
+        // keeps the stored values (`None` here).
+        let parsed_facts = parsed
             .as_ref()
-            .map(|parsed_data| parsed_data.facts.clone())
-            .unwrap_or_default();
+            .ok()
+            .map(|parsed_data| parsed_data.facts.clone());
         let metadata_image = parsed
             .as_ref()
             .ok()
@@ -373,6 +376,9 @@ impl GitHubIndexer {
         {
             // The file changed upstream: refresh everything we derive from it.
             let recipe = db::recipes::get_recipe(&self.pool, existing.recipe_id).await?;
+            let facts = parsed_facts
+                .clone()
+                .unwrap_or_else(|| RecipeFacts::from_recipe(&recipe));
             let update = UpdateRecipe {
                 title: Some(title.clone()),
                 source_url: Some(html_url.clone()),
@@ -418,6 +424,7 @@ impl GitHubIndexer {
 
             let content_hash = Some(content_hash);
 
+            let facts = parsed_facts.unwrap_or_default();
             let new_recipe = NewRecipe {
                 feed_id: github_feed.feed_id,
                 external_id: file_path.to_string(),

@@ -404,7 +404,7 @@ impl Crawler {
             Some(l) => (Some(l.code.as_str()), Some(l.source.as_str())),
             None => (None, None),
         };
-        let facts = entry_facts(entry, parsed_content.as_ref());
+        let facts = entry_facts(entry, parsed_content.as_ref(), existing_recipe.as_ref());
 
         let result = match existing_recipe {
             Some(recipe) => {
@@ -523,9 +523,15 @@ use crate::utils::resolve_image_url;
 
 /// Servings, total time and difficulty for a feed entry. Values the feed
 /// entry states win, and the `.cook` enclosure's Cooklang metadata fills the
-/// rest. A feed difficulty other than easy/medium/hard counts as not stated.
+/// rest. When the content did not parse, the `stored` row (if the recipe
+/// exists) fills the rest instead, so a broken update never wipes known
+/// values. A feed difficulty other than easy/medium/hard counts as not stated.
 /// (`parse_entry` does not read any from the feed XML yet.)
-fn entry_facts(entry: &ParsedEntry, parsed: Option<&ParsedRecipeData>) -> RecipeFacts {
+fn entry_facts(
+    entry: &ParsedEntry,
+    parsed: Option<&ParsedRecipeData>,
+    stored: Option<&Recipe>,
+) -> RecipeFacts {
     let from_entry = RecipeFacts {
         servings: entry.metadata.servings,
         total_time_minutes: entry.metadata.total_time,
@@ -535,9 +541,10 @@ fn entry_facts(entry: &ParsedEntry, parsed: Option<&ParsedRecipeData>) -> Recipe
             .as_deref()
             .and_then(allowed_difficulty),
     };
-    match parsed {
-        Some(parsed) => from_entry.or(parsed.facts.clone()),
-        None => from_entry,
+    match (parsed, stored) {
+        (Some(parsed), _) => from_entry.or(parsed.facts.clone()),
+        (None, Some(stored)) => from_entry.or(RecipeFacts::from_recipe(stored)),
+        (None, None) => from_entry,
     }
 }
 
@@ -752,7 +759,7 @@ mod tests {
     fn cooklang_metadata_fills_what_the_feed_entry_leaves_out() {
         let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
         assert_eq!(
-            entry_facts(&entry, Some(&stew())),
+            entry_facts(&entry, Some(&stew()), None),
             RecipeFacts {
                 servings: Some(4),
                 total_time_minutes: Some(90),
@@ -770,7 +777,7 @@ mod tests {
             difficulty: Some("hard".to_string()),
         });
         assert_eq!(
-            entry_facts(&entry, Some(&stew())),
+            entry_facts(&entry, Some(&stew()), None),
             RecipeFacts {
                 servings: Some(2),
                 total_time_minutes: Some(90),
@@ -782,7 +789,7 @@ mod tests {
     #[test]
     fn without_parsed_content_only_feed_entry_values_are_used() {
         let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
-        assert_eq!(entry_facts(&entry, None), RecipeFacts::default());
+        assert_eq!(entry_facts(&entry, None, None), RecipeFacts::default());
     }
 
     #[test]
@@ -793,7 +800,9 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(
-            entry_facts(&moderate, Some(&easy)).difficulty.as_deref(),
+            entry_facts(&moderate, Some(&easy), None)
+                .difficulty
+                .as_deref(),
             Some("easy")
         );
 
@@ -802,9 +811,48 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(
-            entry_facts(&shouting, Some(&easy)).difficulty.as_deref(),
+            entry_facts(&shouting, Some(&easy), None)
+                .difficulty
+                .as_deref(),
             Some("hard")
         );
-        assert_eq!(entry_facts(&moderate, None).difficulty, None);
+        assert_eq!(entry_facts(&moderate, None, None).difficulty, None);
+    }
+
+    #[tokio::test]
+    async fn updated_content_that_does_not_parse_keeps_the_stored_facts() {
+        let (pool, recipe_id) = seeded_pool().await;
+        let stored = db::recipes::get_recipe(&pool, recipe_id).await.unwrap();
+        assert!(parse_cooklang_full("Stir @salt{%}.\n").is_err());
+
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        assert_eq!(
+            entry_facts(&entry, None, Some(&stored)),
+            RecipeFacts {
+                servings: Some(24),
+                total_time_minutes: Some(45),
+                difficulty: Some("easy".to_string()),
+            }
+        );
+
+        // Values the feed entry states still win over the stored ones.
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata {
+            servings: Some(2),
+            ..Default::default()
+        });
+        assert_eq!(entry_facts(&entry, None, Some(&stored)).servings, Some(2));
+    }
+
+    #[tokio::test]
+    async fn updated_content_that_parses_replaces_the_stored_facts() {
+        let (pool, recipe_id) = seeded_pool().await;
+        let stored = db::recipes::get_recipe(&pool, recipe_id).await.unwrap();
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        let bare = parse_cooklang_full("Stir.\n").unwrap();
+        // A file that parses without the keys clears them, stored row or not.
+        assert_eq!(
+            entry_facts(&entry, Some(&bare), Some(&stored)),
+            RecipeFacts::default()
+        );
     }
 }
