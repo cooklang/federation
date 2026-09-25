@@ -141,8 +141,8 @@ impl SearchIndex {
     }
 
     /// Get an index writer, waiting for any other writer in this process to
-    /// finish. Long-running server tasks (crawler, GitHub indexer) must use
-    /// this; one-shot CLI commands may use [`Self::writer`] directly.
+    /// finish. Every production writer (crawler, GitHub indexer, CLI
+    /// commands) goes through this; [`Self::writer`] is for tests.
     pub async fn locked_writer(&self) -> Result<LockedWriter<'_>> {
         let gate = self.writer_gate.lock().await;
         let writer = self.writer()?;

@@ -234,9 +234,9 @@ impl GitHubIndexer {
             .filter(|r| !current_paths.contains(r.file_path.as_str()))
             .collect();
 
-        // Batch commit to search index
-        if !successful_recipe_ids.is_empty() || !stale.is_empty() {
-            let mut search_writer = self.search_index.writer()?;
+        // Files that left the repository leave the index and the database.
+        if !stale.is_empty() {
+            let mut search_writer = self.search_index.locked_writer().await?;
 
             for github_recipe in &stale {
                 info!(
@@ -248,41 +248,17 @@ impl GitHubIndexer {
                 db::recipes::delete_recipe(&self.pool, github_recipe.recipe_id).await?;
             }
 
-            for recipe_id in successful_recipe_ids {
-                let recipe = db::recipes::get_recipe(&self.pool, recipe_id).await?;
-
-                // Get file path from github_recipes if this is a GitHub recipe
-                let file_path = if let Some(github_recipe) =
-                    db::github::get_github_recipe_by_recipe_id(&self.pool, recipe_id).await?
-                {
-                    Some(github_recipe.file_path)
-                } else {
-                    None
-                };
-
-                // Fetch tags for this recipe
-                let tags = db::tags::get_tags_for_recipe(&self.pool, recipe_id).await?;
-
-                // Fetch ingredients for this recipe
-                let ingredients =
-                    db::ingredients::get_ingredients_for_recipe(&self.pool, recipe_id)
-                        .await?
-                        .iter()
-                        .map(|ing| ing.name.clone())
-                        .collect::<Vec<_>>();
-
-                self.search_index.index_recipe(
-                    &mut search_writer,
-                    &recipe,
-                    file_path.as_deref(),
-                    &tags,
-                    &ingredients,
-                )?;
-            }
-
-            // Single commit for all recipes
             self.search_index.commit(&mut search_writer)?;
         }
+
+        // Every recipe still in the repository is (re)indexed with its tags,
+        // ingredients, file path and feed title, with a single commit.
+        crate::indexer::extras::reindex_recipes(
+            &self.pool,
+            &self.search_index,
+            &successful_recipe_ids,
+        )
+        .await?;
 
         // Update GitHub feed with latest commit SHA
         db::github::update_github_feed_commit(&self.pool, github_feed_id, &latest_commit_sha)
@@ -519,7 +495,7 @@ impl GitHubIndexer {
         let recipes = db::github::list_github_recipes_by_feed(&self.pool, github_feed_id).await?;
 
         // Remove from search index
-        let mut writer = self.search_index.writer()?;
+        let mut writer = self.search_index.locked_writer().await?;
         for recipe in &recipes {
             if let Err(e) = self
                 .search_index
@@ -531,7 +507,7 @@ impl GitHubIndexer {
                 );
             }
         }
-        writer.commit()?;
+        self.search_index.commit(&mut writer)?;
 
         // Delete GitHub feed (cascades to recipes)
         db::github::delete_github_feed(&self.pool, github_feed_id).await?;

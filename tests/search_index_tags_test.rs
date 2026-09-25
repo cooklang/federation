@@ -151,3 +151,27 @@ async fn locked_writers_are_handed_out_one_at_a_time() {
     drop(first);
     second.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn rebuilding_with_backfill_indexes_tags_and_feed_titles() {
+    let pool = pool().await;
+    let recipe_id = seed(&pool).await;
+    let dir = tempfile::tempdir().unwrap();
+    let index = SearchIndex::new(dir.path()).unwrap();
+
+    let stats = federation::cli::commands::backfill_locales(&pool, &index, true)
+        .await
+        .unwrap();
+    assert_eq!(stats.scanned, 1);
+
+    let results = index
+        .search_with(&everything(), &dessert_filter(), SortOrder::Relevance, 100)
+        .unwrap();
+    assert_eq!(results.results.len(), 1);
+    assert_eq!(results.results[0].recipe_id, recipe_id);
+    assert_eq!(
+        results.results[0].feed_title.as_deref(),
+        Some("Jane's Kitchen"),
+        "a rebuild must fill the card's feed title"
+    );
+}

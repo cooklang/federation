@@ -454,7 +454,7 @@ pub async fn backfill_locales(
             break;
         }
 
-        let mut writer = search_index.writer()?;
+        let mut writer = search_index.locked_writer().await?;
         // Locale resolved per recipe in this batch, to be written to the DB only
         // after the batch's index writes are durably committed.
         let mut resolved: Vec<(i64, Option<RecipeLocale>)> = Vec::new();
@@ -488,23 +488,8 @@ pub async fn backfill_locales(
                 recipe.locale_source = Some(locale.source.as_str().to_string());
             }
 
-            let file_path = crate::db::github::get_github_recipe_by_recipe_id(pool, recipe.id)
-                .await?
-                .map(|gh| gh.file_path);
-            let tags = crate::db::tags::get_tags_for_recipe(pool, recipe.id).await?;
-            let ingredients = crate::db::ingredients::get_ingredients_for_recipe(pool, recipe.id)
-                .await?
-                .iter()
-                .map(|i| i.name.clone())
-                .collect::<Vec<_>>();
-
-            search_index.index_recipe(
-                &mut writer,
-                &recipe,
-                file_path.as_deref(),
-                &tags,
-                &ingredients,
-            )?;
+            let extras = crate::indexer::extras::IndexExtras::load(pool, &recipe).await?;
+            search_index.index_recipe_full(&mut writer, &recipe, &extras)?;
 
             resolved.push((recipe.id, locale));
         }
@@ -594,7 +579,7 @@ pub async fn cleanup_recipes(
     use crate::github::indexer::recipe_title;
 
     let mut stats = CleanupStats::default();
-    let mut writer = search_index.writer()?;
+    let mut writer = search_index.locked_writer().await?;
 
     let github_recipes: Vec<GitHubRecipe> =
         sqlx::query_as("SELECT * FROM github_recipes ORDER BY id")
@@ -631,19 +616,8 @@ pub async fn cleanup_recipes(
             .await?;
 
         let recipe = crate::db::recipes::get_recipe(pool, recipe.id).await?;
-        let tags = crate::db::tags::get_tags_for_recipe(pool, recipe.id).await?;
-        let ingredients = crate::db::ingredients::get_ingredients_for_recipe(pool, recipe.id)
-            .await?
-            .iter()
-            .map(|i| i.name.clone())
-            .collect::<Vec<_>>();
-        search_index.index_recipe(
-            &mut writer,
-            &recipe,
-            Some(&github_recipe.file_path),
-            &tags,
-            &ingredients,
-        )?;
+        let extras = crate::indexer::extras::IndexExtras::load(pool, &recipe).await?;
+        search_index.index_recipe_full(&mut writer, &recipe, &extras)?;
         stats.retitled += 1;
     }
 

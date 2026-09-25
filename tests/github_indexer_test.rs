@@ -302,3 +302,39 @@ async fn identical_recipe_in_a_fork_is_indexed_once() {
     assert_eq!(h.titles().await, vec!["Tiramisu Brownies"]);
     assert_eq!(h.search_ids("mascarpone").len(), 1);
 }
+
+#[tokio::test]
+async fn indexed_recipes_carry_tags_and_feed_title() {
+    use federation::indexer::filters::{SearchFilters, SortOrder};
+
+    let h = Harness::new().await;
+    let mut repo = FakeRepo::new("alice", "recipes").await;
+    repo.set_files(&[(
+        "Brownies.cook",
+        "---\ntags: [desserts, chocolate]\n---\nMelt @chocolate{200%g}.\n",
+    )])
+    .await;
+    h.indexer(&repo).add_repository(&repo.url()).await.unwrap();
+
+    let query = SearchQuery {
+        q: String::new(),
+        page: 1,
+        limit: 10,
+        locale: None,
+    };
+    let filters = SearchFilters {
+        tags: vec!["dessert".to_string()],
+        ..SearchFilters::default()
+    };
+    let results = h
+        .search
+        .search_with(&query, &filters, SortOrder::Relevance, 100)
+        .unwrap();
+
+    assert_eq!(results.results.len(), 1);
+    // The fake repository has no description, so the feed is titled by its full name.
+    assert_eq!(
+        results.results[0].feed_title.as_deref(),
+        Some("alice/recipes")
+    );
+}

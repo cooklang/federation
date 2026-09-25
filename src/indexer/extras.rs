@@ -72,7 +72,9 @@ pub async fn reindex_recipes(
     if let Err(e) = written {
         // Discard this batch's pending deletes/adds explicitly so a partial
         // batch is never committed by a later writer.
-        let _ = writer.rollback();
+        if let Err(rollback_error) = writer.rollback() {
+            tracing::warn!("Failed to roll back the search index writer: {rollback_error}");
+        }
         return Err(e);
     }
 
