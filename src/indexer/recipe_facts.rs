@@ -75,10 +75,16 @@ fn servings(metadata: &Metadata) -> Option<i64> {
     (count > 0).then_some(i64::from(count))
 }
 
-/// `difficulty`, normalized (`" Medium "` is `medium`), if it is one of
-/// [`DIFFICULTIES`]. Anything else would violate the column's constraint.
+/// `difficulty` from the metadata, see [`allowed_difficulty`].
 fn difficulty(metadata: &Metadata) -> Option<String> {
-    let value = normalize_difficulty(&metadata.get(StdKey::Difficulty)?.as_str_like()?);
+    allowed_difficulty(&metadata.get(StdKey::Difficulty)?.as_str_like()?)
+}
+
+/// A difficulty normalized (`" Medium "` is `medium`), if it is one of
+/// [`DIFFICULTIES`]; `None` otherwise, since anything else would violate the
+/// `recipes.difficulty` column's constraint.
+pub fn allowed_difficulty(value: &str) -> Option<String> {
+    let value = normalize_difficulty(value);
     DIFFICULTIES.contains(&value.as_str()).then_some(value)
 }
 

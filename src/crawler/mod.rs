@@ -9,7 +9,7 @@ use crate::config::CrawlerConfig;
 use crate::db::{self, models::*, DbPool};
 use crate::error::{Error, Result};
 use crate::indexer::extras::reindex_recipes;
-use crate::indexer::recipe_facts::RecipeFacts;
+use crate::indexer::recipe_facts::{allowed_difficulty, RecipeFacts};
 use crate::indexer::search::SearchIndex;
 use crate::indexer::{parse_cooklang_full, ParsedRecipeData};
 use crate::utils::validation;
@@ -523,12 +523,17 @@ use crate::utils::resolve_image_url;
 
 /// Servings, total time and difficulty for a feed entry. Values the feed
 /// entry states win, and the `.cook` enclosure's Cooklang metadata fills the
-/// rest. (`parse_entry` does not read any from the feed XML yet.)
+/// rest. A feed difficulty other than easy/medium/hard counts as not stated.
+/// (`parse_entry` does not read any from the feed XML yet.)
 fn entry_facts(entry: &ParsedEntry, parsed: Option<&ParsedRecipeData>) -> RecipeFacts {
     let from_entry = RecipeFacts {
         servings: entry.metadata.servings,
         total_time_minutes: entry.metadata.total_time,
-        difficulty: entry.metadata.difficulty.clone(),
+        difficulty: entry
+            .metadata
+            .difficulty
+            .as_deref()
+            .and_then(allowed_difficulty),
     };
     match parsed {
         Some(parsed) => from_entry.or(parsed.facts.clone()),
@@ -778,5 +783,28 @@ mod tests {
     fn without_parsed_content_only_feed_entry_values_are_used() {
         let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
         assert_eq!(entry_facts(&entry, None), RecipeFacts::default());
+    }
+
+    #[test]
+    fn feed_difficulty_outside_the_allowed_values_falls_back_to_metadata() {
+        let easy = parse_cooklang_full("---\ndifficulty: Easy\n---\nStir.\n").unwrap();
+        let moderate = entry_with(crate::crawler::parser::RecipeMetadata {
+            difficulty: Some("Moderate".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(
+            entry_facts(&moderate, Some(&easy)).difficulty.as_deref(),
+            Some("easy")
+        );
+
+        let shouting = entry_with(crate::crawler::parser::RecipeMetadata {
+            difficulty: Some("HARD".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(
+            entry_facts(&shouting, Some(&easy)).difficulty.as_deref(),
+            Some("hard")
+        );
+        assert_eq!(entry_facts(&moderate, None).difficulty, None);
     }
 }
