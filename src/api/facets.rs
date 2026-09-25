@@ -1,8 +1,14 @@
 //! Facet counts for search filter UIs: tags, languages and difficulties.
 
+use std::future::Future;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use tokio::sync::RwLock;
+
 use crate::api::models::{DifficultyFacet, FacetsResponse, LocaleFacet, TagFacet};
 use crate::db::{self, DbPool};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::indexer::locale::display_name;
 
 /// Tags returned by `GET /api/facets` when `tag_limit` is not given.
@@ -10,6 +16,70 @@ pub const DEFAULT_TAG_LIMIT: usize = 200;
 
 /// Largest `tag_limit` a client may ask for.
 pub const MAX_TAG_LIMIT: usize = 1000;
+
+/// How long computed facets are served before they are recomputed.
+pub const FACETS_TTL: Duration = Duration::from_secs(300);
+
+/// In-memory cache for the facet lists. One entry, holding every list with
+/// tags capped at [`MAX_TAG_LIMIT`]; requests trim tags to their own limit.
+pub struct FacetsCache {
+    ttl: Duration,
+    entry: RwLock<Option<(Instant, Arc<FacetsResponse>)>>,
+}
+
+impl FacetsCache {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            ttl,
+            entry: RwLock::new(None),
+        }
+    }
+
+    /// The cached facets while fresh, else the result of `load` (which is then
+    /// cached). Concurrent callers on an expired entry load it once.
+    pub async fn get_or_load<F, Fut>(&self, load: F) -> Result<Arc<FacetsResponse>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<FacetsResponse>>,
+    {
+        if let Some((loaded_at, facets)) = self.entry.read().await.as_ref() {
+            if loaded_at.elapsed() < self.ttl {
+                return Ok(facets.clone());
+            }
+        }
+
+        let mut entry = self.entry.write().await;
+        if let Some((loaded_at, facets)) = entry.as_ref() {
+            if loaded_at.elapsed() < self.ttl {
+                return Ok(facets.clone());
+            }
+        }
+
+        let facets = Arc::new(load().await?);
+        *entry = Some((Instant::now(), facets.clone()));
+        Ok(facets)
+    }
+}
+
+impl Default for FacetsCache {
+    fn default() -> Self {
+        Self::new(FACETS_TTL)
+    }
+}
+
+/// `tag_limit`: blank means [`DEFAULT_TAG_LIMIT`], values above
+/// [`MAX_TAG_LIMIT`] are capped, anything but a positive integer is a 400.
+pub fn parse_tag_limit(value: Option<&str>) -> Result<usize> {
+    let Some(raw) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(DEFAULT_TAG_LIMIT);
+    };
+    match raw.parse::<usize>() {
+        Ok(limit) if limit > 0 => Ok(limit.min(MAX_TAG_LIMIT)),
+        _ => Err(Error::Validation(format!(
+            "tag_limit must be a positive whole number, got \"{raw}\""
+        ))),
+    }
+}
 
 /// Recipe counts per language, most common first. Regional codes ("en-US")
 /// are folded into their base language ("en"), so each language appears once.
@@ -164,5 +234,44 @@ mod tests {
             tags,
             vec![("dessert".to_string(), 3), ("vegan".to_string(), 2)]
         );
+    }
+
+    #[tokio::test]
+    async fn cache_serves_the_stored_value_until_it_expires() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let loads = AtomicUsize::new(0);
+        let load = || async {
+            loads.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, crate::error::Error>(FacetsResponse::default())
+        };
+
+        let cache = FacetsCache::new(Duration::from_secs(300));
+        cache.get_or_load(load).await.unwrap();
+        cache.get_or_load(load).await.unwrap();
+        assert_eq!(
+            loads.load(Ordering::SeqCst),
+            1,
+            "second call is served from cache"
+        );
+
+        let expired = FacetsCache::new(Duration::ZERO);
+        expired.get_or_load(load).await.unwrap();
+        expired.get_or_load(load).await.unwrap();
+        assert_eq!(
+            loads.load(Ordering::SeqCst),
+            3,
+            "an expired entry is reloaded"
+        );
+    }
+
+    #[test]
+    fn tag_limit_defaults_caps_and_rejects_garbage() {
+        assert_eq!(parse_tag_limit(None).unwrap(), DEFAULT_TAG_LIMIT);
+        assert_eq!(parse_tag_limit(Some(" ")).unwrap(), DEFAULT_TAG_LIMIT);
+        assert_eq!(parse_tag_limit(Some("5")).unwrap(), 5);
+        assert_eq!(parse_tag_limit(Some("5000")).unwrap(), MAX_TAG_LIMIT);
+        assert!(parse_tag_limit(Some("0")).is_err());
+        assert!(parse_tag_limit(Some("many")).is_err());
     }
 }

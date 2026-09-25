@@ -195,6 +195,7 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
         search_index,
         github_indexer,
         settings: settings.clone(),
+        facets_cache: Arc::new(federation::api::facets::FacetsCache::default()),
     };
 
     // Create router with rate limiting

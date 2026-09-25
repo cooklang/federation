@@ -25,6 +25,7 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
     let mut api_routes = Router::new()
         // Search
         .route("/search", get(api_handlers::search_recipes))
+        .route("/facets", get(api_handlers::get_facets))
         // Recipes
         .route("/recipes/:id", get(api_handlers::get_recipe))
         .route("/recipes/:id/download", get(api_handlers::download_recipe))
@@ -235,6 +236,7 @@ mod tests {
             search_index: Arc::new(search_index),
             github_indexer: None,
             settings,
+            facets_cache: Arc::new(crate::api::facets::FacetsCache::default()),
         };
 
         (state, temp_dir)
@@ -557,6 +559,35 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["results"].as_array().unwrap().len(), 1);
         assert_eq!(json["pagination"]["limit"], 1);
+    }
+
+    #[tokio::test]
+    async fn facets_endpoint_reports_counts_and_honours_tag_limit() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        let (status, json) = get_json(&state, "/api/facets").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["tags"][0],
+            serde_json::json!({ "name": "dinner", "count": 2 })
+        );
+        assert_eq!(
+            json["locales"][0],
+            serde_json::json!({ "code": "en", "name": "English", "count": 2 })
+        );
+        assert_eq!(
+            json["difficulties"][0],
+            serde_json::json!({ "name": "easy", "count": 2 })
+        );
+
+        // Served from the cache (loaded with every tag), then trimmed.
+        let (_, limited) = get_json(&state, "/api/facets?tag_limit=1").await;
+        assert_eq!(limited["tags"].as_array().unwrap().len(), 1);
+
+        let (status, json) = get_json(&state, "/api/facets?tag_limit=lots").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(json["error"].as_str().unwrap().contains("tag_limit"));
     }
 
     /// A repeated list parameter is not merged: axum's `Query` rejects the

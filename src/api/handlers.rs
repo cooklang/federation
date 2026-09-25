@@ -14,6 +14,7 @@ pub struct AppState {
     pub search_index: Arc<crate::indexer::search::SearchIndex>,
     pub github_indexer: Option<crate::github::GitHubIndexer>,
     pub settings: crate::config::Settings,
+    pub facets_cache: Arc<crate::api::facets::FacetsCache>,
 }
 
 /// GET /api/search - Search recipes
@@ -78,6 +79,25 @@ pub async fn search_recipes(
             total_pages: results.total_pages,
         },
     }))
+}
+
+/// GET /api/facets - Tag, language and difficulty counts for filter UIs
+pub async fn get_facets(
+    State(state): State<AppState>,
+    Query(params): Query<FacetsParams>,
+) -> Result<Json<FacetsResponse>> {
+    debug!("Facets request: {:?}", params);
+
+    let tag_limit = crate::api::facets::parse_tag_limit(params.tag_limit.as_deref())?;
+    let pool = state.pool.clone();
+    let facets = state
+        .facets_cache
+        .get_or_load(|| async move { crate::api::facets::load_facets(&pool).await })
+        .await?;
+
+    let mut response = (*facets).clone();
+    response.tags.truncate(tag_limit);
+    Ok(Json(response))
 }
 
 /// GET /api/recipes/:id - Get recipe details
