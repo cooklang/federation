@@ -311,7 +311,22 @@ impl SearchIndex {
 
         // A zero limit would panic inside TopDocs and divide by zero below.
         let limit = query.limit.min(max_limit).max(1);
-        let offset = query.page.saturating_sub(1) * limit;
+        // `page` comes straight from an HTTP query param, so it can be
+        // arbitrarily large. `saturating_mul` alone stops the multiplication
+        // from overflowing, but tantivy's collector internally computes
+        // `limit + offset` and allocates a buffer of that size, so an
+        // unclamped offset near `usize::MAX` still panics (or tries to
+        // allocate an enormous buffer) inside tantivy. No query can match
+        // more than `searcher.num_docs()` documents, so any larger offset is
+        // guaranteed to land past the last page; capping it there keeps the
+        // buffer bounded to the size of the index while still returning an
+        // empty page (with a correct `total`) for a page number that is too
+        // high.
+        let offset = query
+            .page
+            .saturating_sub(1)
+            .saturating_mul(limit)
+            .min(searcher.num_docs() as usize);
 
         // Execute search: the page of hits plus a full count in one pass.
         let (top_docs, total): (Vec<(f32, DocAddress)>, usize) = match sort {
@@ -1842,5 +1857,22 @@ mod filter_tests {
             page2,
             "page 2 must be deterministic"
         );
+    }
+
+    #[test]
+    fn a_huge_page_number_does_not_overflow_the_offset() {
+        let f = corpus();
+        let query = SearchQuery {
+            q: String::new(),
+            page: usize::MAX,
+            limit: 10,
+            locale: None,
+        };
+        let results = f
+            .index
+            .search_with(&query, &SearchFilters::default(), SortOrder::Relevance, 100)
+            .unwrap();
+        assert!(results.results.is_empty());
+        assert_eq!(results.total, 4);
     }
 }
