@@ -543,6 +543,28 @@ pub async fn list_locales(pool: &DbPool) -> Result<Vec<(String, i64)>> {
     Ok(rows)
 }
 
+/// Distinct difficulty values (trimmed, lowercased, as the search index
+/// stores them) with recipe counts, most common first. `recipes.difficulty`
+/// is already restricted to lowercase "easy"/"medium"/"hard" by a `CHECK`
+/// constraint (`migrations/001_init.sql:32`) and by
+/// `recipe_facts::allowed_difficulty`; `LOWER(TRIM(...))` is a defensive
+/// no-op kept so this stays correct if that guarantee ever loosens.
+pub async fn list_difficulties(pool: &DbPool) -> Result<Vec<(String, i64)>> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        r#"
+        SELECT LOWER(TRIM(difficulty)) AS name, COUNT(*) AS count
+        FROM recipes
+        WHERE difficulty IS NOT NULL AND TRIM(difficulty) <> ''
+        GROUP BY LOWER(TRIM(difficulty))
+        ORDER BY count DESC, name ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

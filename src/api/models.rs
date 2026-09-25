@@ -157,3 +157,40 @@ pub struct ReadinessResponse {
     pub database: String,
     pub search_index: String,
 }
+
+/// `GET /api/facets` response
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct FacetsResponse {
+    pub tags: Vec<TagFacet>,
+    pub locales: Vec<LocaleFacet>,
+    pub difficulties: Vec<DifficultyFacet>,
+}
+
+/// A tag and how many recipes carry it
+#[derive(Debug, Clone, Serialize)]
+pub struct TagFacet {
+    pub name: String,
+    pub count: i64,
+}
+
+/// A language (base code, e.g. "en") with its English name and recipe count
+#[derive(Debug, Clone, Serialize)]
+pub struct LocaleFacet {
+    pub code: String,
+    pub name: String,
+    pub count: i64,
+}
+
+/// A normalised difficulty value and its recipe count
+#[derive(Debug, Clone, Serialize)]
+pub struct DifficultyFacet {
+    pub name: String,
+    pub count: i64,
+}
+
+/// `GET /api/facets` query parameters
+#[derive(Debug, Clone, Deserialize)]
+pub struct FacetsParams {
+    #[serde(default)]
+    pub tag_limit: Option<String>,
+}

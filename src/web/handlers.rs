@@ -81,29 +81,18 @@ pub async fn index(
     let query = params.q.clone().unwrap_or_default();
     let locale = params.locale.clone().unwrap_or_default();
 
-    // Language filter options: distinct locales in the database, most common first.
+    // Language filter options: one entry per language, most common first.
     // Regional codes ("en-US") are folded into their base language ("en") so the
-    // dropdown lists one entry per language.
-    let locales = {
-        let mut counts: Vec<(String, i64)> = Vec::new();
-        for (code, count) in db::recipes::list_locales(&state.pool).await? {
-            let base = code.split('-').next().unwrap_or(&code).to_string();
-            match counts.iter_mut().find(|(c, _)| *c == base) {
-                Some((_, existing)) => *existing += count,
-                None => counts.push((base, count)),
-            }
-        }
-        counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-
-        counts
-            .into_iter()
-            .map(|(code, count)| LocaleOption {
-                name: crate::indexer::locale::display_name(&code).unwrap_or_else(|| code.clone()),
-                code,
-                count,
-            })
-            .collect::<Vec<_>>()
-    };
+    // dropdown lists one entry per language; shared with `GET /api/facets`.
+    let locales = crate::api::facets::language_facets(&state.pool)
+        .await?
+        .into_iter()
+        .map(|facet| LocaleOption {
+            code: facet.code,
+            name: facet.name,
+            count: facet.count,
+        })
+        .collect::<Vec<_>>();
 
     // If query and locale filter are both empty, show no results
     let (results, total, total_pages) = if query.is_empty() && locale.is_empty() {

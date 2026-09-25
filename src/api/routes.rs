@@ -458,6 +458,19 @@ mod tests {
         (status, response_json(response).await)
     }
 
+    async fn get_text(state: &AppState, uri: &str) -> (StatusCode, String) {
+        let app = create_router(state.clone(), &state.settings);
+        let response = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, String::from_utf8(body.to_vec()).unwrap())
+    }
+
     fn result_ids(json: &serde_json::Value) -> Vec<i64> {
         let mut ids: Vec<i64> = json["results"]
             .as_array()
@@ -562,5 +575,72 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// The website's language dropdown is built from `api::facets::language_facets`
+    /// (the same function `GET /api/facets` uses) instead of its own inline
+    /// query + fold. This pins its rendered output - codes, names, order and
+    /// counts - so that refactor stays behaviour-preserving: regional codes
+    /// ("en-US") fold into their base language, most common language first.
+    #[tokio::test]
+    async fn search_page_language_dropdown_folds_regional_codes() {
+        use crate::db::models::{NewFeed, NewRecipe};
+        use crate::db::{feeds, recipes};
+
+        let (state, _index_dir) = create_test_state().await;
+
+        let feed = feeds::create_feed(
+            &state.pool,
+            &NewFeed {
+                url: "https://example.com/locales.xml".to_string(),
+                title: Some("Locale Feed".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let new_recipe = |external_id: &str, locale: &str| NewRecipe {
+            feed_id: feed.id,
+            external_id: external_id.to_string(),
+            title: format!("Recipe {external_id}"),
+            source_url: None,
+            enclosure_url: format!("https://example.com/{external_id}.cook"),
+            content: None,
+            summary: None,
+            servings: None,
+            total_time_minutes: None,
+            active_time_minutes: None,
+            difficulty: None,
+            image_url: None,
+            published_at: None,
+            content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
+            locale: Some(locale.to_string()),
+            locale_source: Some("declared".to_string()),
+        };
+
+        // en, en-US (folds into en) and de: "en" ends up with count 2, "de" with 1.
+        for (external_id, locale) in [("a", "en"), ("b", "en-US"), ("c", "de")] {
+            recipes::create_recipe(&state.pool, &new_recipe(external_id, locale))
+                .await
+                .unwrap();
+        }
+
+        let (status, body) = get_text(&state, "/").await;
+        assert_eq!(status, StatusCode::OK);
+
+        let english = r#"<option value="en">English (2)</option>"#;
+        let german = r#"<option value="de">German (1)</option>"#;
+        assert!(body.contains(english), "{body}");
+        assert!(body.contains(german), "{body}");
+        assert!(
+            body.find(english).unwrap() < body.find(german).unwrap(),
+            "English (more recipes) must be listed before German"
+        );
+        // Only one option per language: the regional "en-US" code never
+        // appears in the dropdown on its own.
+        assert!(!body.contains(r#"value="en-US""#));
     }
 }
