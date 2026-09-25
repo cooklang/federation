@@ -713,11 +713,19 @@ pub async fn feed_recipes_page(
 /// About page template
 #[derive(Template)]
 #[template(path = "about.html")]
-struct AboutTemplate {}
+struct AboutTemplate {
+    /// `API_RATE_LIMIT`: requests per second per client.
+    api_rate_limit: u64,
+    /// `API_MAX_LIMIT`: the largest `limit` the API accepts.
+    api_max_limit: usize,
+}
 
 /// GET /about - About page
-pub async fn about_page() -> Result<impl IntoResponse> {
-    let template = AboutTemplate {};
+pub async fn about_page(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    let template = AboutTemplate {
+        api_rate_limit: state.settings.server.api_rate_limit,
+        api_max_limit: state.settings.pagination.api_max_limit,
+    };
     Ok(Html(template.render().map_err(|e| {
         Error::Internal(format!("Template render failed: {e}"))
     })?))

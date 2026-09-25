@@ -742,7 +742,7 @@ git push origin main
                             </tr>
                             <tr>
                                 <td class="py-1 pr-4 font-mono text-xs text-orange-600">limit</td>
-                                <td class="py-1 text-gray-700">Results per page (default 20, max 100).</td>
+                                <td class="py-1 text-gray-700">Results per page (default 20, max {{ api_max_limit }}).</td>
                             </tr>
                         </tbody>
                     </table>
@@ -887,7 +887,7 @@ git push origin main
                 <div>
                     <p class="text-sm text-yellow-800 font-semibold mb-1">Rate Limiting</p>
                     <p class="text-sm text-yellow-700">
-                        Every <code>/api</code> endpoint is limited per client IP address, to 100 requests per second on this instance with bursts of twice that.
+                        Every <code>/api</code> endpoint is limited per client IP address, to {{ api_rate_limit }} requests per second on this instance with bursts of twice that.
                         Over the limit you get HTTP 429 (Too Many Requests). Back off and retry.
                         For higher limits, run your own federation instance.
                     </p>

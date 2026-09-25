@@ -854,4 +854,21 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn about_page_shows_the_configured_rate_limit_and_max_page_size() {
+        let (mut state, _index_dir) = create_test_state().await;
+        state.settings.server.api_rate_limit = 7;
+        state.settings.pagination.api_max_limit = 42;
+
+        let (status, html) = get_text(&state, "/about").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.contains("to 7 requests per second on this instance"),
+            "{html}"
+        );
+        assert!(html.contains("(default 20, max 42)"), "{html}");
+        assert!(!html.contains("100 requests per second"));
+        assert!(!html.contains("max 100)"));
+    }
 }
