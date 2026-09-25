@@ -35,6 +35,12 @@ pub struct SearchResult {
     pub summary: Option<String>,
     pub score: f32,
     pub locale: Option<String>,
+    pub total_time_minutes: Option<i64>,
+    pub servings: Option<i64>,
+    pub difficulty: Option<String>,
+    pub image_url: Option<String>,
+    pub feed_id: Option<i64>,
+    pub feed_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,34 +301,7 @@ impl SearchIndex {
             .into_iter()
             .filter_map(|(score, doc_address)| {
                 let doc = searcher.doc::<tantivy::TantivyDocument>(doc_address).ok()?;
-
-                let recipe_id = match doc.get_first(self.schema.id)? {
-                    tantivy::schema::OwnedValue::I64(id) => *id,
-                    _ => return None,
-                };
-
-                let title = match doc.get_first(self.schema.title)? {
-                    tantivy::schema::OwnedValue::Str(s) => s.to_string(),
-                    _ => return None,
-                };
-
-                let summary = doc.get_first(self.schema.summary).and_then(|v| match v {
-                    tantivy::schema::OwnedValue::Str(s) => Some(s.to_string()),
-                    _ => None,
-                });
-
-                let locale = doc.get_first(self.schema.locale).and_then(|v| match v {
-                    tantivy::schema::OwnedValue::Str(s) => Some(s.to_string()),
-                    _ => None,
-                });
-
-                Some(SearchResult {
-                    recipe_id,
-                    title,
-                    summary,
-                    score,
-                    locale,
-                })
+                self.result_from_doc(&doc, score)
             })
             .collect();
 
@@ -333,6 +312,24 @@ impl SearchIndex {
             total,
             page: query.page,
             total_pages,
+        })
+    }
+
+    /// Build a result card from a stored document. Returns `None` only for a
+    /// document without an id or title, which the indexer never writes.
+    fn result_from_doc(&self, doc: &tantivy::TantivyDocument, score: f32) -> Option<SearchResult> {
+        Some(SearchResult {
+            recipe_id: stored_i64(doc, self.schema.id)?,
+            title: stored_str(doc, self.schema.title)?,
+            summary: stored_str(doc, self.schema.summary),
+            score,
+            locale: stored_str(doc, self.schema.locale),
+            total_time_minutes: stored_i64(doc, self.schema.total_time),
+            servings: stored_i64(doc, self.schema.servings),
+            difficulty: stored_str(doc, self.schema.difficulty),
+            image_url: stored_str(doc, self.schema.image_url),
+            feed_id: stored_i64(doc, self.schema.feed_id),
+            feed_title: stored_str(doc, self.schema.feed_title),
         })
     }
 
@@ -364,6 +361,22 @@ impl SearchIndex {
             .map_err(|e| Error::Search(format!("Failed to optimize index: {e}")))?;
 
         Ok(())
+    }
+}
+
+/// First stored string value of `field`, if any.
+fn stored_str(doc: &tantivy::TantivyDocument, field: tantivy::schema::Field) -> Option<String> {
+    match doc.get_first(field)? {
+        tantivy::schema::OwnedValue::Str(s) => Some(s.to_string()),
+        _ => None,
+    }
+}
+
+/// First stored i64 value of `field`, if any.
+fn stored_i64(doc: &tantivy::TantivyDocument, field: tantivy::schema::Field) -> Option<i64> {
+    match doc.get_first(field)? {
+        tantivy::schema::OwnedValue::I64(value) => Some(*value),
+        _ => None,
     }
 }
 
@@ -1167,5 +1180,67 @@ mod card_tests {
             None,
             "whitespace-only difficulty stores no difficulty field"
         );
+    }
+
+    fn query(q: &str) -> SearchQuery {
+        SearchQuery {
+            q: q.to_string(),
+            page: 1,
+            limit: 10,
+            locale: None,
+        }
+    }
+
+    #[test]
+    fn search_results_carry_card_fields() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+        index
+            .index_recipe_full(&mut writer, &card_recipe(), &card_extras())
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+
+        let results = index.search(&query("tart"), 10).unwrap();
+        let card = &results.results[0];
+
+        assert_eq!(card.recipe_id, 7);
+        assert_eq!(card.total_time_minutes, Some(45));
+        assert_eq!(card.servings, Some(6));
+        assert_eq!(card.difficulty.as_deref(), Some("easy"));
+        assert_eq!(
+            card.image_url.as_deref(),
+            Some("https://example.com/lemon-tart.jpg")
+        );
+        assert_eq!(card.feed_id, Some(12));
+        assert_eq!(card.feed_title.as_deref(), Some("Jane's Kitchen"));
+    }
+
+    #[test]
+    fn search_results_leave_missing_card_fields_empty() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+        let bare = Recipe {
+            servings: None,
+            total_time_minutes: None,
+            difficulty: None,
+            image_url: None,
+            ..card_recipe()
+        };
+        index
+            .index_recipe(&mut writer, &bare, None, &[], &[])
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+
+        let results = index.search(&query("tart"), 10).unwrap();
+        let card = &results.results[0];
+
+        assert_eq!(card.total_time_minutes, None);
+        assert_eq!(card.servings, None);
+        assert_eq!(card.difficulty, None);
+        assert_eq!(card.image_url, None);
+        assert_eq!(card.feed_title, None);
+        assert_eq!(card.feed_id, Some(12), "feed_id is always indexed");
     }
 }
