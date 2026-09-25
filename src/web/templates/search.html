@@ -28,6 +28,8 @@ Search by field using <code class="bg-gray-100 px-1 rounded">tags:</code>, <code
                     name="q"
                     value="{{ query }}"
                     placeholder="Search query"
+                    aria-label="Search recipes"
+                    {% if !error_message.is_empty() %}aria-invalid="true" aria-describedby="search-error"{% endif %}
                     class="w-full min-w-0 sm:flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 >
                 <!-- On phones the select and button share one row under the input;

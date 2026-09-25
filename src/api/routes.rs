@@ -773,5 +773,14 @@ mod tests {
         assert!(html.contains("Invalid query"));
         assert!(html.contains(r#"value="nosuchfield:pasta""#));
         assert!(!html.contains("No recipes found"));
+        assert!(html.contains(r#"aria-label="Search recipes""#));
+        assert!(html.contains(r#"aria-invalid="true" aria-describedby="search-error""#));
+
+        // Without an error the search box is neither invalid nor described by it.
+        let (status, html) = get_text(&state, "/?q=garlic").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(r#"aria-label="Search recipes""#));
+        assert!(!html.contains("aria-invalid"));
+        assert!(!html.contains("aria-describedby"));
     }
 }
