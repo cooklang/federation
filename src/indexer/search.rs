@@ -270,8 +270,9 @@ impl SearchIndex {
         // dessert. Tantivy's default is OR, which turns field filters into suggestions.
         query_parser.set_conjunction_by_default();
 
-        // Parse unified query string
-        let parsed_query = if query.q.is_empty() {
+        // Parse unified query string. A whitespace-only `q` has no terms to
+        // parse and must not be treated as a query that matches nothing.
+        let parsed_query = if query.q.trim().is_empty() {
             Box::new(tantivy::query::AllQuery) as Box<dyn Query>
         } else {
             query_parser
@@ -409,19 +410,25 @@ impl SearchIndex {
             .tokenizer_for_field(field)
             .map_err(|e| Error::Search(format!("No analyzer for field: {e}")))?;
 
-        let mut terms = Vec::new();
+        let mut terms: Vec<(usize, Term)> = Vec::new();
         {
             let mut stream = analyzer.token_stream(text);
-            stream.process(&mut |token| terms.push(Term::from_field_text(field, &token.text)));
+            stream.process(&mut |token| {
+                terms.push((token.position, Term::from_field_text(field, &token.text)))
+            });
         }
 
         Ok(match terms.len() {
             0 => None,
             1 => Some(
-                Box::new(TermQuery::new(terms.remove(0), IndexRecordOption::Basic))
+                Box::new(TermQuery::new(terms.remove(0).1, IndexRecordOption::Basic))
                     as Box<dyn Query>,
             ),
-            _ => Some(Box::new(PhraseQuery::new(terms)) as Box<dyn Query>),
+            // A filter's own analyzer run can drop a token (e.g. `RemoveLongFilter`),
+            // leaving a gap in the remaining tokens' positions. Using each token's
+            // real position, rather than the default 0, 1, 2, ..., keeps the phrase
+            // query matching the same gap in the indexed document.
+            _ => Some(Box::new(PhraseQuery::new_with_offset(terms)) as Box<dyn Query>),
         })
     }
 
@@ -1541,7 +1548,54 @@ mod filter_tests {
     #[test]
     fn blank_filter_values_are_ignored() {
         let f = corpus();
-        assert_eq!(ids(&f, "", None, &tags(&[" "])), vec![1, 2, 3, 4]);
+        assert_eq!(ids(&f, "", None, &tags(&[" ", "!!!"])), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn whitespace_only_query_is_treated_as_empty() {
+        let f = corpus();
+        assert_eq!(ids(&f, "   ", None, &tags(&["vegan"])), vec![1, 3]);
+    }
+
+    #[test]
+    fn phrase_filter_matches_value_with_a_long_token_dropped_by_the_tokenizer() {
+        // Over the tokenizer's 40-char `RemoveLongFilter` limit: this token is
+        // dropped, leaving a gap between the positions of "peanut" and "butter".
+        let long_word = "a".repeat(45);
+        let value = format!("peanut {long_word} butter");
+
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+        let spec = Spec {
+            id: 1,
+            title: "Test",
+            feed_id: 1,
+            tags: &[],
+            ingredients: &[],
+            total_time: None,
+            servings: None,
+            difficulty: None,
+            locale: Some("en"),
+            created_day: 1,
+        };
+        let extras = IndexExtras {
+            file_path: None,
+            tags: Vec::new(),
+            ingredients: vec![value.clone()],
+            feed_title: None,
+        };
+        index
+            .index_recipe_full(&mut writer, &recipe(&spec), &extras)
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+        let f = Fixture { index, _dir: dir };
+
+        let filters = SearchFilters {
+            include_ingredients: vec![value],
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &filters), vec![1]);
     }
 
     #[test]
