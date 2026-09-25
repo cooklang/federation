@@ -2,9 +2,12 @@
 // This module handles Cooklang parsing and Tantivy search indexing
 
 pub mod cooklang_parser;
+pub mod extras;
+pub mod filters;
 pub mod locale;
 mod plain_text;
 pub mod recipe;
+pub mod recipe_facts;
 pub mod schema;
 pub mod search;
 

@@ -1,6 +1,7 @@
 use federation::cli::commands::cleanup_recipes;
 use federation::db::models::{NewFeed, NewGitHubFeed, NewGitHubRecipe, NewRecipe};
 use federation::db::{self, init_pool, run_migrations};
+use federation::indexer::extras::IndexExtras;
 use federation::indexer::{SearchIndex, SearchQuery};
 
 fn new_recipe(feed_id: i64, external_id: &str, title: &str, content: &str) -> NewRecipe {
@@ -46,10 +47,10 @@ fn search(index: &SearchIndex, q: &str) -> Vec<i64> {
 }
 
 async fn index_all(pool: &db::DbPool, index: &SearchIndex) {
-    let mut writer = index.writer().unwrap();
+    let mut writer = index.locked_writer().await.unwrap();
     for recipe in db::recipes::list_all_recipes(pool, 100, 0).await.unwrap() {
         index
-            .index_recipe(&mut writer, &recipe, None, &[], &[])
+            .index_recipe_full(&mut writer, &recipe, &IndexExtras::default())
             .unwrap();
     }
     index.commit(&mut writer).unwrap();

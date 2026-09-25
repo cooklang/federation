@@ -1,4 +1,5 @@
 use crate::github::{client::GitHubClient, config::GitHubConfig};
+use crate::indexer::recipe_facts::RecipeFacts;
 use crate::utils::resolve_image_url;
 use crate::{
     db::{
@@ -234,9 +235,9 @@ impl GitHubIndexer {
             .filter(|r| !current_paths.contains(r.file_path.as_str()))
             .collect();
 
-        // Batch commit to search index
-        if !successful_recipe_ids.is_empty() || !stale.is_empty() {
-            let mut search_writer = self.search_index.writer()?;
+        // Files that left the repository leave the index and the database.
+        if !stale.is_empty() {
+            let mut search_writer = self.search_index.locked_writer().await?;
 
             for github_recipe in &stale {
                 info!(
@@ -248,41 +249,17 @@ impl GitHubIndexer {
                 db::recipes::delete_recipe(&self.pool, github_recipe.recipe_id).await?;
             }
 
-            for recipe_id in successful_recipe_ids {
-                let recipe = db::recipes::get_recipe(&self.pool, recipe_id).await?;
-
-                // Get file path from github_recipes if this is a GitHub recipe
-                let file_path = if let Some(github_recipe) =
-                    db::github::get_github_recipe_by_recipe_id(&self.pool, recipe_id).await?
-                {
-                    Some(github_recipe.file_path)
-                } else {
-                    None
-                };
-
-                // Fetch tags for this recipe
-                let tags = db::tags::get_tags_for_recipe(&self.pool, recipe_id).await?;
-
-                // Fetch ingredients for this recipe
-                let ingredients =
-                    db::ingredients::get_ingredients_for_recipe(&self.pool, recipe_id)
-                        .await?
-                        .iter()
-                        .map(|ing| ing.name.clone())
-                        .collect::<Vec<_>>();
-
-                self.search_index.index_recipe(
-                    &mut search_writer,
-                    &recipe,
-                    file_path.as_deref(),
-                    &tags,
-                    &ingredients,
-                )?;
-            }
-
-            // Single commit for all recipes
             self.search_index.commit(&mut search_writer)?;
         }
+
+        // Every recipe still in the repository is (re)indexed with its tags,
+        // ingredients, file path and feed title, with a single commit.
+        crate::indexer::extras::reindex_recipes(
+            &self.pool,
+            &self.search_index,
+            &successful_recipe_ids,
+        )
+        .await?;
 
         // Update GitHub feed with latest commit SHA
         db::github::update_github_feed_commit(&self.pool, github_feed_id, &latest_commit_sha)
@@ -344,16 +321,20 @@ impl GitHubIndexer {
         let parsed = crate::indexer::parse_cooklang_full(&content);
 
         let title = recipe_title(parsed.as_ref().ok(), file_path);
-        let (summary, servings, total_time, metadata_image) = if let Ok(ref parsed_data) = parsed {
-            // Extract metadata from parsed content
-            let summary = None; // Can be enhanced to extract from recipe notes
-            let servings = None; // Can be extracted from metadata
-            let total_time = None; // Can be extracted from timer sum
-            let metadata_image = parsed_data.metadata.as_ref().and_then(|m| m.image.clone());
-            (summary, servings, total_time, metadata_image)
-        } else {
-            (None, None, None, None)
-        };
+
+        // The file is the only source of a GitHub recipe's servings, total
+        // time and difficulty: a key removed from a file that parses clears the
+        // column. A file that does not parse tells us nothing, so an update
+        // keeps the stored values (`None` here).
+        let parsed_facts = parsed
+            .as_ref()
+            .ok()
+            .map(|parsed_data| parsed_data.facts.clone());
+        let metadata_image = parsed
+            .as_ref()
+            .ok()
+            .and_then(|parsed_data| parsed_data.metadata.as_ref())
+            .and_then(|m| m.image.clone());
 
         // Locale: declared `locale:` metadata wins, otherwise detected from text.
         let locale = parsed
@@ -395,15 +376,19 @@ impl GitHubIndexer {
         {
             // The file changed upstream: refresh everything we derive from it.
             let recipe = db::recipes::get_recipe(&self.pool, existing.recipe_id).await?;
+            let facts = parsed_facts
+                .clone()
+                .unwrap_or_else(|| RecipeFacts::from_recipe(&recipe));
             let update = UpdateRecipe {
                 title: Some(title.clone()),
                 source_url: Some(html_url.clone()),
                 content: Some(content.clone()),
-                summary,
-                servings,
-                total_time_minutes: total_time,
+                summary: None,
+                servings: facts.servings,
+                total_time_minutes: facts.total_time_minutes,
+                // Cooklang has no standard active-time key; keep what we have.
                 active_time_minutes: recipe.active_time_minutes,
-                difficulty: recipe.difficulty.clone(),
+                difficulty: facts.difficulty.clone(),
                 image_url,
                 updated_at: None,
             };
@@ -439,6 +424,7 @@ impl GitHubIndexer {
 
             let content_hash = Some(content_hash);
 
+            let facts = parsed_facts.unwrap_or_default();
             let new_recipe = NewRecipe {
                 feed_id: github_feed.feed_id,
                 external_id: file_path.to_string(),
@@ -446,11 +432,11 @@ impl GitHubIndexer {
                 source_url: Some(html_url.clone()),
                 enclosure_url: raw_url.clone(),
                 content: Some(content.clone()),
-                summary,
-                servings,
-                total_time_minutes: total_time,
+                summary: None,
+                servings: facts.servings,
+                total_time_minutes: facts.total_time_minutes,
                 active_time_minutes: None,
-                difficulty: None,
+                difficulty: facts.difficulty,
                 image_url,
                 published_at: None,
                 content_hash,
@@ -480,21 +466,7 @@ impl GitHubIndexer {
 
         // Extract and store ingredients, cookware, and tags from parsed content
         if let Ok(parsed_data) = parsed {
-            // Store ingredients
-            let ingredients: Vec<crate::db::models::RecipeIngredient> = parsed_data
-                .ingredients
-                .iter()
-                .map(|ing| crate::db::models::RecipeIngredient {
-                    name: ing.name.clone(),
-                    quantity: ing.quantity_value,
-                    unit: ing.unit.clone(),
-                })
-                .collect();
-
-            if !ingredients.is_empty() {
-                db::ingredients::set_recipe_ingredients(&self.pool, recipe_id, &ingredients)
-                    .await?;
-            }
+            db::ingredients::store_parsed_ingredients(&self.pool, recipe_id, &parsed_data).await?;
 
             // Store metadata tags from recipe
             if let Some(metadata) = &parsed_data.metadata {
@@ -519,7 +491,7 @@ impl GitHubIndexer {
         let recipes = db::github::list_github_recipes_by_feed(&self.pool, github_feed_id).await?;
 
         // Remove from search index
-        let mut writer = self.search_index.writer()?;
+        let mut writer = self.search_index.locked_writer().await?;
         for recipe in &recipes {
             if let Err(e) = self
                 .search_index
@@ -531,7 +503,7 @@ impl GitHubIndexer {
                 );
             }
         }
-        writer.commit()?;
+        self.search_index.commit(&mut writer)?;
 
         // Delete GitHub feed (cascades to recipes)
         db::github::delete_github_feed(&self.pool, github_feed_id).await?;

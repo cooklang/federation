@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::api::filters::FilterParams;
+
 /// Search request parameters
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchParams {
@@ -12,6 +14,9 @@ pub struct SearchParams {
     pub page: usize,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    /// Structured filters and sort order (`tags`, `max_time`, `sort`, ...).
+    #[serde(flatten)]
+    pub filters: FilterParams,
 }
 
 fn default_page() -> usize {
@@ -29,7 +34,8 @@ pub struct SearchResponse {
     pub pagination: Pagination,
 }
 
-/// Recipe card for search results
+/// Recipe card for search results. Everything except `id`, `title` and `tags`
+/// may be null; clients must render without it.
 #[derive(Debug, Clone, Serialize)]
 pub struct RecipeCard {
     pub id: i64,
@@ -37,6 +43,18 @@ pub struct RecipeCard {
     pub summary: Option<String>,
     pub tags: Vec<String>,
     pub locale: Option<String>,
+    pub total_time_minutes: Option<i64>,
+    pub servings: Option<i64>,
+    pub difficulty: Option<String>,
+    pub image_url: Option<String>,
+    pub feed: Option<CardFeed>,
+}
+
+/// The feed a result card came from.
+#[derive(Debug, Clone, Serialize)]
+pub struct CardFeed {
+    pub id: i64,
+    pub title: Option<String>,
 }
 
 /// Pagination metadata
@@ -138,4 +156,41 @@ pub struct ReadinessResponse {
     pub ready: bool,
     pub database: String,
     pub search_index: String,
+}
+
+/// `GET /api/facets` response
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct FacetsResponse {
+    pub tags: Vec<TagFacet>,
+    pub locales: Vec<LocaleFacet>,
+    pub difficulties: Vec<DifficultyFacet>,
+}
+
+/// A tag and how many recipes carry it
+#[derive(Debug, Clone, Serialize)]
+pub struct TagFacet {
+    pub name: String,
+    pub count: i64,
+}
+
+/// A language (base code, e.g. "en") with its English name and recipe count
+#[derive(Debug, Clone, Serialize)]
+pub struct LocaleFacet {
+    pub code: String,
+    pub name: String,
+    pub count: i64,
+}
+
+/// A normalised difficulty value and its recipe count
+#[derive(Debug, Clone, Serialize)]
+pub struct DifficultyFacet {
+    pub name: String,
+    pub count: i64,
+}
+
+/// `GET /api/facets` query parameters
+#[derive(Debug, Clone, Deserialize)]
+pub struct FacetsParams {
+    #[serde(default)]
+    pub tag_limit: Option<String>,
 }

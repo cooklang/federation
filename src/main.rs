@@ -136,11 +136,14 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
 
     // Initialize search index
     let index_path = std::path::PathBuf::from(&settings.search.index_path);
-    let search_index = SearchIndex::new(&index_path)?;
+    let search_index = Arc::new(SearchIndex::new(&index_path)?);
     info!("Search index initialized at {:?}", index_path);
 
-    // Initialize crawler
-    let crawler = Arc::new(federation::crawler::Crawler::new(settings.crawler.clone())?);
+    // Initialize crawler; it indexes the recipes each crawl creates or updates
+    let crawler = Arc::new(
+        federation::crawler::Crawler::new(settings.crawler.clone())?
+            .with_search_index(search_index.clone()),
+    );
     info!("Crawler initialized");
 
     // Start background scheduler
@@ -154,9 +157,6 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
         "Background scheduler started (interval: {}s)",
         settings.crawler.interval_seconds
     );
-
-    // Wrap search index in Arc for sharing
-    let search_index = Arc::new(search_index);
 
     // Initialize GitHub indexer if enabled
     let github_indexer = {
@@ -195,6 +195,7 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
         search_index,
         github_indexer,
         settings: settings.clone(),
+        facets_cache: Arc::new(federation::api::facets::FacetsCache::default()),
     };
 
     // Create router with rate limiting
@@ -219,6 +220,7 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
     );
     println!("\nAPI Endpoints:");
     println!("  GET  /api/search");
+    println!("  GET  /api/facets");
     println!("  GET  /api/recipes/:id");
     println!("  GET  /api/recipes/:id/download");
     println!("  GET  /api/feeds");
@@ -230,9 +232,13 @@ async fn serve(mut settings: Settings, port: Option<u16>, host: Option<String>) 
 
     info!("Server listening on {}", addr);
 
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| Error::Internal(format!("Server error: {e}")))?;
+    // Connect info gives the rate limiter each client's address.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .map_err(|e| Error::Internal(format!("Server error: {e}")))?;
 
     info!("Shutting down...");
     Ok(())
@@ -334,8 +340,8 @@ async fn backfill_locales(settings: Settings, force: bool) -> Result<()> {
     let stats = federation::cli::commands::backfill_locales(&pool, &search_index, force).await?;
 
     println!(
-        "\x1b[32m\u{2713}\x1b[0m Backfill complete: {} scanned, {} tagged, {} left without a locale",
-        stats.scanned, stats.updated, stats.skipped
+        "\x1b[32m\u{2713}\x1b[0m Backfill complete: {} scanned, {} tagged, {} left without a locale, {} given servings/time/difficulty from metadata, {} given ingredient lists",
+        stats.scanned, stats.updated, stats.skipped, stats.facts_filled, stats.ingredients_filled
     );
 
     Ok(())

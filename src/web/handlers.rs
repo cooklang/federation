@@ -1,11 +1,21 @@
 use askama::Template;
 use axum::{
-    extract::{Path, Query, State},
-    response::{Html, IntoResponse},
+    extract::{Path, Query, RawQuery, State},
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
 };
 use serde::{Deserialize, Deserializer};
 
-use crate::{api::handlers::AppState, db, error::Error, indexer::search::SearchQuery, Result};
+use crate::{
+    api::filters::FilterParams,
+    api::handlers::AppState,
+    api::query::ValidatedQuery,
+    db,
+    error::Error,
+    indexer::filters::{normalize_difficulty, SortOrder},
+    indexer::search::{SearchQuery, SearchResults},
+    Result,
+};
 
 /// Deserialize optional string, treating empty strings as None
 fn deserialize_optional_string<'de, D>(
@@ -33,6 +43,97 @@ struct SearchTemplate {
     page: usize,
     total_pages: usize,
     recent_recipes: Vec<RecipeCardData>,
+    /// True when the page shows search results rather than the landing view.
+    searching: bool,
+    form: FilterForm,
+    filters_active: bool,
+    /// URL-encoded `key=value&...` of the current search, without `page`.
+    pagination_query: String,
+    /// Link to the same search with every structured filter removed.
+    clear_filters_href: String,
+    /// Why the search could not run (bad filter or malformed query), shown
+    /// inline next to the search box. Empty when there is no error.
+    error_message: String,
+}
+
+/// Current structured-filter values, echoed back into the search form.
+#[derive(Clone)]
+#[allow(dead_code)] // Fields are used by Askama templates
+struct FilterForm {
+    tags: String,
+    include_ingredients: String,
+    exclude_ingredients: String,
+    max_time: String,
+    min_servings: String,
+    max_servings: String,
+    difficulty: String,
+    feed_id: String,
+    sort: String,
+    /// A `max_time` the dropdown does not offer, shown as an extra selected
+    /// option so resubmitting the form keeps it.
+    extra_max_time: Option<ExtraOption>,
+    /// Likewise for a `difficulty` other than easy/medium/hard.
+    extra_difficulty: Option<ExtraOption>,
+}
+
+/// A dropdown option for a value the form does not offer by default.
+#[derive(Clone)]
+#[allow(dead_code)] // Fields are used by Askama templates
+struct ExtraOption {
+    value: String,
+    label: String,
+}
+
+/// `max_time` values the search form's dropdown offers.
+const OFFERED_MAX_TIMES: [&str; 3] = ["15", "30", "60"];
+/// `difficulty` values the search form's dropdown offers.
+const OFFERED_DIFFICULTIES: [&str; 3] = ["easy", "medium", "hard"];
+
+impl FilterForm {
+    fn from_params(params: &FilterParams) -> Self {
+        let value =
+            |field: &Option<String>| field.as_deref().unwrap_or_default().trim().to_string();
+        let max_time = value(&params.max_time);
+        // Normalised the way the search filter reads it.
+        let difficulty = normalize_difficulty(&value(&params.difficulty));
+        let extra_max_time = (!max_time.is_empty()
+            && !OFFERED_MAX_TIMES.contains(&max_time.as_str()))
+        .then(|| ExtraOption {
+            label: match max_time.parse::<u64>() {
+                Ok(minutes) => format!("{minutes} minutes or less"),
+                Err(_) => max_time.clone(),
+            },
+            value: max_time.clone(),
+        });
+        let extra_difficulty = (!difficulty.is_empty()
+            && !OFFERED_DIFFICULTIES.contains(&difficulty.as_str()))
+        .then(|| ExtraOption {
+            value: difficulty.clone(),
+            label: difficulty.clone(),
+        });
+        Self {
+            tags: value(&params.tags),
+            include_ingredients: value(&params.include_ingredients),
+            exclude_ingredients: value(&params.exclude_ingredients),
+            max_time,
+            min_servings: value(&params.min_servings),
+            max_servings: value(&params.max_servings),
+            difficulty,
+            feed_id: value(&params.feed_id),
+            sort: value(&params.sort),
+            extra_max_time,
+            extra_difficulty,
+        }
+    }
+}
+
+/// `key=value&...` with URL-encoded values.
+fn encode_query(pairs: &[(&str, &str)]) -> String {
+    pairs
+        .iter()
+        .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 /// One entry in the language filter dropdown.
@@ -67,104 +168,167 @@ pub struct SearchParams {
     locale: Option<String>,
     #[serde(default = "default_page")]
     page: usize,
+    /// The same structured filters as `GET /api/search`.
+    #[serde(flatten)]
+    filters: FilterParams,
 }
 
 fn default_page() -> usize {
     1
 }
 
+impl SearchParams {
+    /// Only the search box and language of a query string that did not
+    /// deserialize (first value of each), so the error page keeps them.
+    fn search_box_only(raw_query: &str) -> Self {
+        let mut params = Self {
+            q: None,
+            locale: None,
+            page: default_page(),
+            filters: FilterParams::default(),
+        };
+        for (key, value) in url::form_urlencoded::parse(raw_query.as_bytes()) {
+            let slot = match key.as_ref() {
+                "q" => &mut params.q,
+                "locale" => &mut params.locale,
+                _ => continue,
+            };
+            if slot.is_none() && !value.is_empty() {
+                *slot = Some(value.into_owned());
+            }
+        }
+        params
+    }
+}
+
 /// GET / - Search page
 pub async fn index(
     State(state): State<AppState>,
-    Query(params): Query<SearchParams>,
-) -> Result<impl IntoResponse> {
+    params: std::result::Result<ValidatedQuery<SearchParams>, Error>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Response> {
+    // A bad filter, a query string that does not deserialize (`page=abc`, a
+    // repeated key) or a malformed query is the user's typo, not a failure:
+    // the page is re-rendered with the message next to the search box and the
+    // input kept, instead of the API's JSON error body.
+    let mut error_message = String::new();
+    let params = match params {
+        Ok(ValidatedQuery(params)) => params,
+        Err(Error::Validation(message)) => {
+            error_message = message;
+            SearchParams::search_box_only(raw_query.as_deref().unwrap_or_default())
+        }
+        Err(other) => return Err(other),
+    };
     let query = params.q.clone().unwrap_or_default();
     let locale = params.locale.clone().unwrap_or_default();
 
-    // Language filter options: distinct locales in the database, most common first.
+    let parsed = if !error_message.is_empty() {
+        None
+    } else {
+        match params.filters.parse() {
+            Ok(parsed) => Some(parsed),
+            Err(Error::Validation(message)) => {
+                error_message = message;
+                None
+            }
+            Err(other) => return Err(other),
+        }
+    };
+    let filters_active = match &parsed {
+        Some((filters, sort)) => !filters.is_empty() || *sort != SortOrder::Relevance,
+        None => !params.filters.query_pairs().is_empty(),
+    };
+    let searching = !query.is_empty() || !locale.is_empty() || filters_active;
+
+    // Language filter options: one entry per language, most common first.
     // Regional codes ("en-US") are folded into their base language ("en") so the
-    // dropdown lists one entry per language.
-    let locales = {
-        let mut counts: Vec<(String, i64)> = Vec::new();
-        for (code, count) in db::recipes::list_locales(&state.pool).await? {
-            let base = code.split('-').next().unwrap_or(&code).to_string();
-            match counts.iter_mut().find(|(c, _)| *c == base) {
-                Some((_, existing)) => *existing += count,
-                None => counts.push((base, count)),
+    // dropdown lists one entry per language; shared with `GET /api/facets`.
+    let locales = crate::api::facets::language_facets(&state.pool)
+        .await?
+        .into_iter()
+        .map(|facet| LocaleOption {
+            code: facet.code,
+            name: facet.name,
+            count: facet.count,
+        })
+        .collect::<Vec<_>>();
+
+    let search_results = match &parsed {
+        Some((filters, sort)) if searching => {
+            let search_query = SearchQuery {
+                q: query.clone(),
+                page: params.page,
+                limit: state.settings.pagination.web_default_limit,
+                locale: params.locale.clone(),
+            };
+            match state.search_index.search_with(
+                &search_query,
+                filters,
+                *sort,
+                state.settings.pagination.max_search_results,
+            ) {
+                Ok(results) => Some(results),
+                Err(Error::Validation(message)) => {
+                    error_message = message;
+                    None
+                }
+                Err(other) => return Err(other),
             }
         }
-        counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-
-        counts
-            .into_iter()
-            .map(|(code, count)| LocaleOption {
-                name: crate::indexer::locale::display_name(&code).unwrap_or_else(|| code.clone()),
-                code,
-                count,
-            })
-            .collect::<Vec<_>>()
+        _ => None,
     };
 
-    // If query and locale filter are both empty, show no results
-    let (results, total, total_pages) = if query.is_empty() && locale.is_empty() {
-        (vec![], 0, 0)
-    } else {
-        // Build search query
-        let search_query = SearchQuery {
-            q: query.clone(),
-            page: params.page,
-            limit: state.settings.pagination.web_default_limit,
-            locale: params.locale.clone(),
-        };
+    let (results, total, total_pages) = match search_results {
+        None => (vec![], 0, 0),
+        Some(SearchResults {
+            results: hits,
+            total,
+            total_pages,
+            ..
+        }) => {
+            // Batch fetch tags for all recipes (avoid N+1 query problem)
+            let recipe_ids: Vec<i64> = hits.iter().map(|r| r.recipe_id).collect();
+            let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
 
-        // Execute search
-        let search_results = state
-            .search_index
-            .search(&search_query, state.settings.pagination.max_search_results)?;
-        let total = search_results.total;
-        let total_pages = search_results.total_pages;
+            let mut results = vec![];
 
-        // Batch fetch tags for all recipes (avoid N+1 query problem)
-        let recipe_ids: Vec<i64> = search_results.results.iter().map(|r| r.recipe_id).collect();
-        let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
+            // Fetch details for each result
+            for result in hits {
+                let recipe = db::recipes::get_recipe(&state.pool, result.recipe_id)
+                    .await
+                    .ok();
+                let tags = tags_map.get(&result.recipe_id).cloned().unwrap_or_default();
 
-        let mut results = vec![];
-
-        // Fetch details for each result
-        for result in search_results.results {
-            let recipe = db::recipes::get_recipe(&state.pool, result.recipe_id)
-                .await
-                .ok();
-            let tags = tags_map.get(&result.recipe_id).cloned().unwrap_or_default();
-
-            if let Some(r) = recipe {
-                results.push(RecipeCardData {
-                    id: r.id,
-                    title: r.title,
-                    summary: r.summary.unwrap_or_default(),
-                    tags,
-                    servings: r.servings.map(|s| s.to_string()).unwrap_or_default(),
-                    total_time_minutes: r
-                        .total_time_minutes
-                        .map(|t| t.to_string())
-                        .unwrap_or_default(),
-                    difficulty: r.difficulty.unwrap_or_default(),
-                    image_url: r.image_url.unwrap_or_default(),
-                    source_url: r.source_url.unwrap_or_default(),
-                    locale_name: r
-                        .locale
-                        .as_deref()
-                        .and_then(crate::indexer::locale::display_name)
-                        .unwrap_or_default(),
-                });
+                if let Some(r) = recipe {
+                    results.push(RecipeCardData {
+                        id: r.id,
+                        title: r.title,
+                        summary: r.summary.unwrap_or_default(),
+                        tags,
+                        servings: r.servings.map(|s| s.to_string()).unwrap_or_default(),
+                        total_time_minutes: r
+                            .total_time_minutes
+                            .map(|t| t.to_string())
+                            .unwrap_or_default(),
+                        difficulty: r.difficulty.unwrap_or_default(),
+                        image_url: r.image_url.unwrap_or_default(),
+                        source_url: r.source_url.unwrap_or_default(),
+                        locale_name: r
+                            .locale
+                            .as_deref()
+                            .and_then(crate::indexer::locale::display_name)
+                            .unwrap_or_default(),
+                    });
+                }
             }
-        }
 
-        (results, total, total_pages)
+            (results, total, total_pages)
+        }
     };
 
     // Fetch recently indexed recipes for the homepage
-    let recent_recipes = if query.is_empty() && locale.is_empty() {
+    let recent_recipes = if !searching {
         let recipes = db::recipes::list_recently_indexed(&state.pool, 6).await?;
         let recipe_ids: Vec<i64> = recipes.iter().map(|r| r.id).collect();
         let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
@@ -198,6 +362,25 @@ pub async fn index(
         vec![]
     };
 
+    // Links: pagination keeps every parameter; "Clear filters" keeps q and locale.
+    let mut base_pairs: Vec<(&str, &str)> = Vec::new();
+    if !query.is_empty() {
+        base_pairs.push(("q", query.as_str()));
+    }
+    if !locale.is_empty() {
+        base_pairs.push(("locale", locale.as_str()));
+    }
+    let clear_filters_href = format!("/?{}", encode_query(&base_pairs));
+    let mut all_pairs = base_pairs.clone();
+    all_pairs.extend(params.filters.query_pairs());
+    let pagination_query = encode_query(&all_pairs);
+
+    let status = if error_message.is_empty() {
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_REQUEST
+    };
+
     let template = SearchTemplate {
         query,
         locale,
@@ -207,11 +390,18 @@ pub async fn index(
         page: params.page,
         total_pages,
         recent_recipes,
+        searching,
+        form: FilterForm::from_params(&params.filters),
+        filters_active,
+        pagination_query,
+        clear_filters_href,
+        error_message,
     };
 
-    Ok(Html(template.render().map_err(|e| {
-        Error::Internal(format!("Template render failed: {e}"))
-    })?))
+    let html = template
+        .render()
+        .map_err(|e| Error::Internal(format!("Template render failed: {e}")))?;
+    Ok((status, Html(html)).into_response())
 }
 
 /// Recipe detail page template
@@ -561,11 +751,19 @@ pub async fn feed_recipes_page(
 /// About page template
 #[derive(Template)]
 #[template(path = "about.html")]
-struct AboutTemplate {}
+struct AboutTemplate {
+    /// `API_RATE_LIMIT`: requests per second per client.
+    api_rate_limit: u64,
+    /// `API_MAX_LIMIT`: the largest `limit` the API accepts.
+    api_max_limit: usize,
+}
 
 /// GET /about - About page
-pub async fn about_page() -> Result<impl IntoResponse> {
-    let template = AboutTemplate {};
+pub async fn about_page(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    let template = AboutTemplate {
+        api_rate_limit: state.settings.server.api_rate_limit,
+        api_max_limit: state.settings.pagination.api_max_limit,
+    };
     Ok(Html(template.render().map_err(|e| {
         Error::Internal(format!("Template render failed: {e}"))
     })?))

@@ -180,6 +180,31 @@ pub async fn delete_unused_tags(pool: &DbPool) -> Result<i64> {
     Ok(result.rows_affected() as i64)
 }
 
+/// The `limit` most used tags with their recipe counts, most used first.
+/// Tags no recipe uses are left out. Only counts recipes with content: a
+/// rebuild (`backfill-locales`) only reindexes recipes with
+/// `content IS NOT NULL`, so a NULL-content recipe's tags would promise a
+/// filter no rebuilt index can actually serve.
+pub async fn top_tags(pool: &DbPool, limit: i64) -> Result<Vec<(String, i64)>> {
+    let tags: Vec<(String, i64)> = sqlx::query_as(
+        r#"
+        SELECT t.name, COUNT(rt.recipe_id) AS count
+        FROM tags t
+        JOIN recipe_tags rt ON rt.tag_id = t.id
+        JOIN recipes r ON r.id = rt.recipe_id
+        WHERE r.content IS NOT NULL
+        GROUP BY t.id, t.name
+        ORDER BY count DESC, t.name
+        LIMIT ?
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(tags)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

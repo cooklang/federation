@@ -8,7 +8,10 @@ pub mod scheduler;
 use crate::config::CrawlerConfig;
 use crate::db::{self, models::*, DbPool};
 use crate::error::{Error, Result};
-use crate::indexer::parse_cooklang_full;
+use crate::indexer::extras::reindex_recipes;
+use crate::indexer::recipe_facts::{allowed_difficulty, RecipeFacts};
+use crate::indexer::search::SearchIndex;
+use crate::indexer::{parse_cooklang_full, ParsedRecipeData};
 use crate::utils::validation;
 use fetcher::{http_date, FetchOutcome, Fetcher, RateLimiter};
 use parser::{parse_feed, ParsedEntry};
@@ -21,9 +24,9 @@ use tracing::{debug, error, info, warn};
 #[derive(Debug)]
 enum ProcessResult {
     /// New recipe was created
-    New,
+    New(i64),
     /// Existing recipe was updated
-    Updated,
+    Updated(i64),
     /// Recipe was skipped (no changes detected)
     Skipped,
 }
@@ -33,6 +36,9 @@ pub struct Crawler {
     fetcher: Fetcher,
     rate_limiters: Arc<Mutex<HashMap<String, Arc<RateLimiter>>>>,
     config: CrawlerConfig,
+    /// When set, recipes a crawl creates or updates are (re)indexed at the end
+    /// of that feed's crawl. CLI crawls leave it unset.
+    search_index: Option<Arc<SearchIndex>>,
 }
 
 impl Crawler {
@@ -43,7 +49,32 @@ impl Crawler {
             fetcher,
             rate_limiters: Arc::new(Mutex::new(HashMap::new())),
             config,
+            search_index: None,
         })
+    }
+
+    /// Keep this search index in step with every crawl.
+    pub fn with_search_index(mut self, search_index: Arc<SearchIndex>) -> Self {
+        self.search_index = Some(search_index);
+        self
+    }
+
+    /// (Re)index recipes this crawl created or updated, with their tags. A
+    /// failure is logged, not returned: the database is already up to date,
+    /// and the next change or a `backfill-locales` run re-indexes the recipe.
+    async fn index_changed_recipes(&self, pool: &DbPool, recipe_ids: &[i64]) {
+        let Some(search_index) = &self.search_index else {
+            return;
+        };
+
+        match reindex_recipes(pool, search_index, recipe_ids).await {
+            Ok(count) => debug!("Indexed {} changed recipes", count),
+            Err(e) => warn!(
+                "Failed to update the search index for {} recipes: {}",
+                recipe_ids.len(),
+                e
+            ),
+        }
     }
 
     /// Crawl a single feed by URL
@@ -167,16 +198,26 @@ impl Crawler {
         let mut updated_recipes = 0;
         let mut skipped_recipes = 0;
 
+        let mut changed_recipe_ids = Vec::new();
+
         for entry in parsed_feed.entries {
             match self.process_entry(pool, feed.id, &entry).await {
-                Ok(ProcessResult::New) => new_recipes += 1,
-                Ok(ProcessResult::Updated) => updated_recipes += 1,
+                Ok(ProcessResult::New(recipe_id)) => {
+                    new_recipes += 1;
+                    changed_recipe_ids.push(recipe_id);
+                }
+                Ok(ProcessResult::Updated(recipe_id)) => {
+                    updated_recipes += 1;
+                    changed_recipe_ids.push(recipe_id);
+                }
                 Ok(ProcessResult::Skipped) => skipped_recipes += 1,
                 Err(e) => {
                     warn!("Failed to process entry {}: {}", entry.id, e);
                 }
             }
         }
+
+        self.index_changed_recipes(pool, &changed_recipe_ids).await;
 
         // Mark feed as active (reset error count)
         db::feeds::update_feed_status(pool, feed.id, "active", 0, None).await?;
@@ -341,105 +382,19 @@ impl Crawler {
             }
         };
 
-        // Parse Last-Modified string to DateTime
-        let content_last_modified_dt = content_last_modified
-            .as_ref()
-            .and_then(|s| chrono::DateTime::parse_from_rfc2822(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc));
-
-        // Calculate content hash for deduplication
-        let content_hash = content
-            .as_ref()
-            .map(|c| db::recipes::calculate_content_hash(&entry.title, Some(c)));
-
-        // Parse the Cooklang content once: it feeds both the image fallback and
-        // locale resolution, on the create and the update path alike.
-        let parsed_content = content.as_ref().and_then(|c| parse_cooklang_full(c).ok());
-
-        let locale = parsed_content
-            .as_ref()
-            .and_then(crate::indexer::resolve_locale);
-        let (locale_code, locale_source) = match &locale {
-            Some(l) => (Some(l.code.as_str()), Some(l.source.as_str())),
-            None => (None, None),
-        };
-
-        let result = match existing_recipe {
-            Some(recipe) => {
-                // Update existing recipe with new content
-                if let Some(ref content_str) = content {
-                    db::recipes::update_recipe_with_content(
-                        pool,
-                        recipe.id,
-                        content_str,
-                        content_hash.as_deref(),
-                        content_etag.as_deref(),
-                        content_last_modified_dt.as_ref(),
-                        entry.updated.as_ref(),
-                        locale_code,
-                        locale_source,
-                    )
-                    .await?;
-                }
-
-                // Update tags
-                if !entry.tags.is_empty() {
-                    db::tags::clear_recipe_tags(pool, recipe.id).await?;
-                    db::tags::add_recipe_tags(pool, recipe.id, &entry.tags).await?;
-                }
-
-                debug!("Updated recipe {}: {}", recipe.id, recipe.title);
-                ProcessResult::Updated
-            }
-            None => {
-                // Determine image URL: prefer feed entry image, fallback to Cooklang metadata
-                let metadata_image = parsed_content
-                    .as_ref()
-                    .and_then(|parsed| parsed.metadata.as_ref())
-                    .and_then(|m| m.image.clone());
-                let image_url = entry
-                    .image_url
-                    .clone()
-                    .or(metadata_image)
-                    .and_then(|img| resolve_image_url(&img, enclosure_url));
-
-                // Create new recipe
-                let new_recipe = NewRecipe {
-                    feed_id,
-                    external_id: entry.id.clone(),
-                    title: entry.title.clone(),
-                    source_url: entry.source_url.clone(),
-                    enclosure_url: enclosure_url.clone(),
-                    content,
-                    summary: entry.summary.clone(),
-                    servings: entry.metadata.servings,
-                    total_time_minutes: entry.metadata.total_time,
-                    active_time_minutes: entry.metadata.active_time,
-                    difficulty: entry.metadata.difficulty.clone(),
-                    image_url,
-                    published_at: entry.published,
-                    content_hash,
-                    content_etag,
-                    content_last_modified: content_last_modified_dt,
-                    feed_entry_updated: entry.updated,
-                    locale: locale_code.map(str::to_string),
-                    locale_source: locale_source.map(str::to_string),
-                };
-
-                let (recipe, _) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;
-
-                // Add tags
-                if !entry.tags.is_empty() {
-                    db::tags::clear_recipe_tags(pool, recipe.id).await?;
-                    db::tags::add_recipe_tags(pool, recipe.id, &entry.tags).await?;
-                }
-
-                debug!("Created new recipe {}: {}", recipe.id, recipe.title);
-                ProcessResult::New
-            }
-        };
-
-        Ok(result)
+        store_entry(
+            pool,
+            feed_id,
+            entry,
+            enclosure_url,
+            existing_recipe,
+            FetchedContent {
+                content,
+                etag: content_etag,
+                last_modified: content_last_modified,
+            },
+        )
+        .await
     }
 
     async fn apply_rate_limit(&self, domain: &str) {
@@ -461,6 +416,149 @@ impl Crawler {
     }
 }
 
+/// A `.cook` enclosure as fetched: its content (None when the fetch failed)
+/// and the caching headers that came with it.
+struct FetchedContent {
+    content: Option<String>,
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
+/// Create or update the recipe for a feed entry from its fetched enclosure.
+/// Database only: no network calls.
+async fn store_entry(
+    pool: &DbPool,
+    feed_id: i64,
+    entry: &ParsedEntry,
+    enclosure_url: &str,
+    existing_recipe: Option<Recipe>,
+    fetched: FetchedContent,
+) -> Result<ProcessResult> {
+    let FetchedContent {
+        content,
+        etag: content_etag,
+        last_modified: content_last_modified,
+    } = fetched;
+
+    // Parse Last-Modified string to DateTime
+    let content_last_modified_dt = content_last_modified
+        .as_ref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc2822(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
+    // Calculate content hash for deduplication
+    let content_hash = content
+        .as_ref()
+        .map(|c| db::recipes::calculate_content_hash(&entry.title, Some(c)));
+
+    // Parse the Cooklang content once: it feeds both the image fallback and
+    // locale resolution, on the create and the update path alike.
+    let parsed_content = content.as_ref().and_then(|c| parse_cooklang_full(c).ok());
+
+    let locale = parsed_content
+        .as_ref()
+        .and_then(crate::indexer::resolve_locale);
+    let (locale_code, locale_source) = match &locale {
+        Some(l) => (Some(l.code.as_str()), Some(l.source.as_str())),
+        None => (None, None),
+    };
+    let facts = entry_facts(entry, parsed_content.as_ref(), existing_recipe.as_ref());
+
+    let result = match existing_recipe {
+        Some(recipe) => {
+            // Update existing recipe with new content
+            if let Some(ref content_str) = content {
+                db::recipes::update_recipe_with_content(
+                    pool,
+                    recipe.id,
+                    content_str,
+                    content_hash.as_deref(),
+                    content_etag.as_deref(),
+                    content_last_modified_dt.as_ref(),
+                    entry.updated.as_ref(),
+                    locale_code,
+                    locale_source,
+                )
+                .await?;
+                db::recipes::update_recipe_facts(
+                    pool,
+                    recipe.id,
+                    facts.servings,
+                    facts.total_time_minutes,
+                    facts.difficulty.as_deref(),
+                )
+                .await?;
+            }
+
+            // Update tags
+            if !entry.tags.is_empty() {
+                db::tags::clear_recipe_tags(pool, recipe.id).await?;
+                db::tags::add_recipe_tags(pool, recipe.id, &entry.tags).await?;
+            }
+
+            debug!("Updated recipe {}: {}", recipe.id, recipe.title);
+            ProcessResult::Updated(recipe.id)
+        }
+        None => {
+            // Determine image URL: prefer feed entry image, fallback to Cooklang metadata
+            let metadata_image = parsed_content
+                .as_ref()
+                .and_then(|parsed| parsed.metadata.as_ref())
+                .and_then(|m| m.image.clone());
+            let image_url = entry
+                .image_url
+                .clone()
+                .or(metadata_image)
+                .and_then(|img| resolve_image_url(&img, enclosure_url));
+
+            // Create new recipe
+            let new_recipe = NewRecipe {
+                feed_id,
+                external_id: entry.id.clone(),
+                title: entry.title.clone(),
+                source_url: entry.source_url.clone(),
+                enclosure_url: enclosure_url.to_string(),
+                content,
+                summary: entry.summary.clone(),
+                servings: facts.servings,
+                total_time_minutes: facts.total_time_minutes,
+                active_time_minutes: entry.metadata.active_time,
+                difficulty: facts.difficulty.clone(),
+                image_url,
+                published_at: entry.published,
+                content_hash,
+                content_etag,
+                content_last_modified: content_last_modified_dt,
+                feed_entry_updated: entry.updated,
+                locale: locale_code.map(str::to_string),
+                locale_source: locale_source.map(str::to_string),
+            };
+
+            let (recipe, _) = db::recipes::get_or_create_recipe(pool, &new_recipe).await?;
+
+            // Add tags
+            if !entry.tags.is_empty() {
+                db::tags::clear_recipe_tags(pool, recipe.id).await?;
+                db::tags::add_recipe_tags(pool, recipe.id, &entry.tags).await?;
+            }
+
+            debug!("Created new recipe {}: {}", recipe.id, recipe.title);
+            ProcessResult::New(recipe.id)
+        }
+    };
+
+    // Ingredients come from the `.cook` content, as for GitHub recipes. When
+    // the content did not parse (or could not be fetched), the stored
+    // ingredients stay, like the stored facts do.
+    if let (Some(parsed), ProcessResult::New(recipe_id) | ProcessResult::Updated(recipe_id)) =
+        (&parsed_content, &result)
+    {
+        db::ingredients::store_parsed_ingredients(pool, *recipe_id, parsed).await?;
+    }
+
+    Ok(result)
+}
+
 #[derive(Debug)]
 pub struct CrawlResult {
     pub feed_id: i64,
@@ -470,6 +568,33 @@ pub struct CrawlResult {
 }
 
 use crate::utils::resolve_image_url;
+
+/// Servings, total time and difficulty for a feed entry. Values the feed
+/// entry states win, and the `.cook` enclosure's Cooklang metadata fills the
+/// rest. When the content did not parse, the `stored` row (if the recipe
+/// exists) fills the rest instead, so a broken update never wipes known
+/// values. A feed difficulty other than easy/medium/hard counts as not stated.
+/// (`parse_entry` does not read any from the feed XML yet.)
+fn entry_facts(
+    entry: &ParsedEntry,
+    parsed: Option<&ParsedRecipeData>,
+    stored: Option<&Recipe>,
+) -> RecipeFacts {
+    let from_entry = RecipeFacts {
+        servings: entry.metadata.servings,
+        total_time_minutes: entry.metadata.total_time,
+        difficulty: entry
+            .metadata
+            .difficulty
+            .as_deref()
+            .and_then(allowed_difficulty),
+    };
+    match (parsed, stored) {
+        (Some(parsed), _) => from_entry.or(parsed.facts.clone()),
+        (None, Some(stored)) => from_entry.or(RecipeFacts::from_recipe(stored)),
+        (None, None) => from_entry,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -534,5 +659,355 @@ mod tests {
             result,
             Some("https://example.com/images/photo.jpg".to_string())
         );
+    }
+
+    fn test_config() -> CrawlerConfig {
+        CrawlerConfig {
+            interval_seconds: 3600,
+            max_feed_size: 5_242_880,
+            max_recipe_size: 1_048_576,
+            rate_limit: 1,
+            user_agent: "TestBot/1.0".to_string(),
+        }
+    }
+
+    async fn seeded_pool() -> (DbPool, i64) {
+        use crate::db::models::{NewFeed, NewRecipe};
+
+        let pool = crate::db::init_pool("sqlite::memory:").await.unwrap();
+        crate::db::run_migrations(&pool).await.unwrap();
+        let feed = db::feeds::create_feed(
+            &pool,
+            &NewFeed {
+                url: "https://example.com/feed.xml".to_string(),
+                title: Some("Jane's Kitchen".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        let recipe = db::recipes::create_recipe(
+            &pool,
+            &NewRecipe {
+                feed_id: feed.id,
+                external_id: "cookies".to_string(),
+                title: "Chocolate Chip Cookies".to_string(),
+                source_url: None,
+                enclosure_url: "https://example.com/cookies.cook".to_string(),
+                content: Some("Mix @flour{250%g}.".to_string()),
+                summary: None,
+                servings: Some(24),
+                total_time_minutes: Some(45),
+                active_time_minutes: None,
+                difficulty: Some("easy".to_string()),
+                image_url: None,
+                published_at: None,
+                content_hash: None,
+                content_etag: None,
+                content_last_modified: None,
+                feed_entry_updated: None,
+                locale: None,
+                locale_source: None,
+            },
+        )
+        .await
+        .unwrap();
+        db::tags::add_recipe_tags(&pool, recipe.id, &["dessert".to_string()])
+            .await
+            .unwrap();
+        (pool, recipe.id)
+    }
+
+    #[tokio::test]
+    async fn changed_recipes_are_indexed_with_their_tags() {
+        use crate::indexer::filters::{SearchFilters, SortOrder};
+        use crate::indexer::{SearchIndex, SearchQuery};
+
+        let (pool, recipe_id) = seeded_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let index = Arc::new(SearchIndex::new(dir.path()).unwrap());
+        let crawler = Crawler::new(test_config())
+            .unwrap()
+            .with_search_index(index.clone());
+
+        crawler.index_changed_recipes(&pool, &[recipe_id]).await;
+
+        let results = index
+            .search_with(
+                &SearchQuery {
+                    q: String::new(),
+                    page: 1,
+                    limit: 10,
+                    locale: None,
+                },
+                &SearchFilters {
+                    tags: vec!["dessert".to_string()],
+                    max_time: Some(60),
+                    ..SearchFilters::default()
+                },
+                SortOrder::Relevance,
+                100,
+            )
+            .unwrap();
+        assert_eq!(results.results.len(), 1);
+        assert_eq!(results.results[0].recipe_id, recipe_id);
+        assert_eq!(
+            results.results[0].feed_title.as_deref(),
+            Some("Jane's Kitchen")
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_search_index_changed_recipes_are_left_alone() {
+        let (pool, recipe_id) = seeded_pool().await;
+        let crawler = Crawler::new(test_config()).unwrap();
+        // Must neither panic nor error: CLI crawls run without an index.
+        crawler.index_changed_recipes(&pool, &[recipe_id]).await;
+    }
+
+    #[tokio::test]
+    async fn an_indexing_failure_is_logged_not_fatal() {
+        use crate::indexer::SearchIndex;
+
+        let (pool, _) = seeded_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let index = Arc::new(SearchIndex::new(dir.path()).unwrap());
+        let crawler = Crawler::new(test_config())
+            .unwrap()
+            .with_search_index(index.clone());
+
+        // A recipe id with no row makes `reindex_recipes` fail; the crawl
+        // must carry on, and the writer gate must be free afterwards.
+        crawler.index_changed_recipes(&pool, &[i64::MAX]).await;
+        assert!(index.locked_writer().await.is_ok());
+    }
+
+    fn entry_with(metadata: crate::crawler::parser::RecipeMetadata) -> ParsedEntry {
+        ParsedEntry {
+            id: "stew".to_string(),
+            title: "Stew".to_string(),
+            summary: None,
+            source_url: None,
+            enclosure_url: Some("https://example.com/stew.cook".to_string()),
+            image_url: None,
+            published: None,
+            updated: None,
+            tags: Vec::new(),
+            metadata,
+        }
+    }
+
+    fn stew() -> crate::indexer::ParsedRecipeData {
+        parse_cooklang_full(
+            "---\nservings: 4\ntime: 1h 30min\ndifficulty: Medium\n---\nSimmer @beef{500%g}.\n",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn cooklang_metadata_fills_what_the_feed_entry_leaves_out() {
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        assert_eq!(
+            entry_facts(&entry, Some(&stew()), None),
+            RecipeFacts {
+                servings: Some(4),
+                total_time_minutes: Some(90),
+                difficulty: Some("medium".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn feed_entry_values_win_over_cooklang_metadata() {
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata {
+            servings: Some(2),
+            total_time: None,
+            active_time: None,
+            difficulty: Some("hard".to_string()),
+        });
+        assert_eq!(
+            entry_facts(&entry, Some(&stew()), None),
+            RecipeFacts {
+                servings: Some(2),
+                total_time_minutes: Some(90),
+                difficulty: Some("hard".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn without_parsed_content_only_feed_entry_values_are_used() {
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        assert_eq!(entry_facts(&entry, None, None), RecipeFacts::default());
+    }
+
+    #[test]
+    fn feed_difficulty_outside_the_allowed_values_falls_back_to_metadata() {
+        let easy = parse_cooklang_full("---\ndifficulty: Easy\n---\nStir.\n").unwrap();
+        let moderate = entry_with(crate::crawler::parser::RecipeMetadata {
+            difficulty: Some("Moderate".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(
+            entry_facts(&moderate, Some(&easy), None)
+                .difficulty
+                .as_deref(),
+            Some("easy")
+        );
+
+        let shouting = entry_with(crate::crawler::parser::RecipeMetadata {
+            difficulty: Some("HARD".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(
+            entry_facts(&shouting, Some(&easy), None)
+                .difficulty
+                .as_deref(),
+            Some("hard")
+        );
+        assert_eq!(entry_facts(&moderate, None, None).difficulty, None);
+    }
+
+    #[tokio::test]
+    async fn updated_content_that_does_not_parse_keeps_the_stored_facts() {
+        let (pool, recipe_id) = seeded_pool().await;
+        let stored = db::recipes::get_recipe(&pool, recipe_id).await.unwrap();
+        assert!(parse_cooklang_full("Stir @salt{%}.\n").is_err());
+
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        assert_eq!(
+            entry_facts(&entry, None, Some(&stored)),
+            RecipeFacts {
+                servings: Some(24),
+                total_time_minutes: Some(45),
+                difficulty: Some("easy".to_string()),
+            }
+        );
+
+        // Values the feed entry states still win over the stored ones.
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata {
+            servings: Some(2),
+            ..Default::default()
+        });
+        assert_eq!(entry_facts(&entry, None, Some(&stored)).servings, Some(2));
+    }
+
+    #[tokio::test]
+    async fn updated_content_that_parses_replaces_the_stored_facts() {
+        let (pool, recipe_id) = seeded_pool().await;
+        let stored = db::recipes::get_recipe(&pool, recipe_id).await.unwrap();
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        let bare = parse_cooklang_full("Stir.\n").unwrap();
+        // A file that parses without the keys clears them, stored row or not.
+        assert_eq!(
+            entry_facts(&entry, Some(&bare), Some(&stored)),
+            RecipeFacts::default()
+        );
+    }
+
+    fn fetched(content: &str) -> FetchedContent {
+        FetchedContent {
+            content: Some(content.to_string()),
+            etag: None,
+            last_modified: None,
+        }
+    }
+
+    async fn ingredient_names(pool: &DbPool, recipe_id: i64) -> Vec<String> {
+        let mut names: Vec<String> = db::ingredients::get_ingredients_for_recipe(pool, recipe_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|ingredient| ingredient.name)
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn recipe_id_of(result: ProcessResult) -> i64 {
+        match result {
+            ProcessResult::New(id) | ProcessResult::Updated(id) => id,
+            ProcessResult::Skipped => panic!("entry was skipped"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_new_feed_recipe_stores_its_ingredients() {
+        let (pool, _) = seeded_pool().await;
+        let feed = db::feeds::get_feed_by_url(&pool, "https://example.com/feed.xml")
+            .await
+            .unwrap()
+            .unwrap();
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+
+        let result = store_entry(
+            &pool,
+            feed.id,
+            &entry,
+            "https://example.com/stew.cook",
+            None,
+            fetched("Simmer @beef{500%g} with @Peanut{2%tbsp}.\n"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            ingredient_names(&pool, recipe_id_of(result)).await,
+            vec!["beef", "peanut"]
+        );
+    }
+
+    #[tokio::test]
+    async fn updated_feed_content_replaces_the_stored_ingredients() {
+        let (pool, recipe_id) = seeded_pool().await;
+        let stored = db::recipes::get_recipe(&pool, recipe_id).await.unwrap();
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+
+        store_entry(
+            &pool,
+            stored.feed_id,
+            &entry,
+            "https://example.com/cookies.cook",
+            Some(stored),
+            fetched("Mix @flour{250%g} and @peanut butter{100%g}.\n"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            ingredient_names(&pool, recipe_id).await,
+            vec!["flour", "peanut butter"]
+        );
+    }
+
+    #[tokio::test]
+    async fn updated_feed_content_that_does_not_parse_keeps_the_stored_ingredients() {
+        let (pool, recipe_id) = seeded_pool().await;
+        db::ingredients::set_recipe_ingredients(
+            &pool,
+            recipe_id,
+            &[RecipeIngredient {
+                name: "flour".to_string(),
+                quantity: Some(250.0),
+                unit: Some("g".to_string()),
+            }],
+        )
+        .await
+        .unwrap();
+        let stored = db::recipes::get_recipe(&pool, recipe_id).await.unwrap();
+        let entry = entry_with(crate::crawler::parser::RecipeMetadata::default());
+        assert!(parse_cooklang_full("Stir @salt{%}.\n").is_err());
+
+        store_entry(
+            &pool,
+            stored.feed_id,
+            &entry,
+            "https://example.com/cookies.cook",
+            Some(stored),
+            fetched("Stir @salt{%}.\n"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(ingredient_names(&pool, recipe_id).await, vec!["flour"]);
     }
 }

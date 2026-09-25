@@ -404,6 +404,12 @@ pub struct BackfillStats {
     pub updated: usize,
     /// Recipes we could not resolve a locale for.
     pub skipped: usize,
+    /// Recipes whose empty servings, total time or difficulty were filled
+    /// from their Cooklang metadata.
+    pub facts_filled: usize,
+    /// Recipes with no stored ingredients whose ingredient list was filled
+    /// from their Cooklang content.
+    pub ingredients_filled: usize,
 }
 
 /// Detect and store locales for recipes that don't have one.
@@ -420,13 +426,24 @@ pub struct BackfillStats {
 /// re-indexes them — `index_recipe` deletes-then-adds by recipe id, so
 /// re-indexing is idempotent. The failure mode is "redo some work", not "lose
 /// data".
+///
+/// Servings, total time and difficulty that a row lacks are filled from the
+/// recipe's Cooklang metadata, indexed, and written after the same commit.
+/// Stored values are never overwritten. If the process dies before the write,
+/// a `--force` rerun fills them again.
+///
+/// Likewise, a recipe with no stored ingredients gets the ingredient list of
+/// its Cooklang content (indexed, then written after the commit), so the
+/// ingredient filters apply to feed recipes crawled before the crawler stored
+/// ingredients. A recipe that already has ingredients keeps them.
 pub async fn backfill_locales(
     pool: &crate::db::DbPool,
     search_index: &crate::indexer::search::SearchIndex,
     force: bool,
 ) -> Result<BackfillStats> {
-    use crate::db::models::Recipe;
+    use crate::db::models::{Recipe, RecipeIngredient};
     use crate::indexer::locale::RecipeLocale;
+    use crate::indexer::recipe_facts::RecipeFacts;
 
     /// Rows per batch. Keeps memory flat on large databases.
     const BATCH_SIZE: i64 = 500;
@@ -454,10 +471,14 @@ pub async fn backfill_locales(
             break;
         }
 
-        let mut writer = search_index.writer()?;
+        let mut writer = search_index.locked_writer().await?;
         // Locale resolved per recipe in this batch, to be written to the DB only
         // after the batch's index writes are durably committed.
         let mut resolved: Vec<(i64, Option<RecipeLocale>)> = Vec::new();
+        // Facts filled per recipe in this batch, written after the commit too.
+        let mut filled_facts: Vec<(i64, RecipeFacts)> = Vec::new();
+        // Ingredient lists filled per recipe in this batch, likewise.
+        let mut filled_ingredients: Vec<(i64, Vec<RecipeIngredient>)> = Vec::new();
 
         for mut recipe in batch {
             last_id = recipe.id;
@@ -468,13 +489,14 @@ pub async fn backfill_locales(
                 continue;
             };
 
-            let locale = match crate::indexer::parse_cooklang_full(&content) {
-                Ok(parsed) => crate::indexer::resolve_locale(&parsed),
+            let parsed = match crate::indexer::parse_cooklang_full(&content) {
+                Ok(parsed) => Some(parsed),
                 Err(e) => {
                     warn!("Recipe {}: failed to parse content: {}", recipe.id, e);
                     None
                 }
             };
+            let locale = parsed.as_ref().and_then(crate::indexer::resolve_locale);
 
             if locale.is_none() {
                 stats.skipped += 1;
@@ -488,23 +510,41 @@ pub async fn backfill_locales(
                 recipe.locale_source = Some(locale.source.as_str().to_string());
             }
 
-            let file_path = crate::db::github::get_github_recipe_by_recipe_id(pool, recipe.id)
-                .await?
-                .map(|gh| gh.file_path);
-            let tags = crate::db::tags::get_tags_for_recipe(pool, recipe.id).await?;
-            let ingredients = crate::db::ingredients::get_ingredients_for_recipe(pool, recipe.id)
-                .await?
-                .iter()
-                .map(|i| i.name.clone())
-                .collect::<Vec<_>>();
+            // Servings, total time and difficulty the row lacks come from the
+            // recipe's Cooklang metadata (GitHub recipes indexed before this
+            // release have none). Values already stored win.
+            if let Some(parsed) = &parsed {
+                let stored = RecipeFacts::from_recipe(&recipe);
+                let filled = stored.clone().or(parsed.facts.clone());
+                if filled != stored {
+                    recipe.servings = filled.servings;
+                    recipe.total_time_minutes = filled.total_time_minutes;
+                    recipe.difficulty = filled.difficulty.clone();
+                    filled_facts.push((recipe.id, filled));
+                }
+            }
 
-            search_index.index_recipe(
-                &mut writer,
-                &recipe,
-                file_path.as_deref(),
-                &tags,
-                &ingredients,
-            )?;
+            let mut extras = crate::indexer::extras::IndexExtras::load(pool, &recipe).await?;
+
+            // A recipe with no stored ingredients (feed recipes crawled
+            // before the crawler stored them) gets them from the same parse,
+            // so the ingredient filters apply to it. Stored rows are never
+            // overwritten.
+            if extras.ingredients.is_empty() {
+                let rows = parsed
+                    .as_ref()
+                    .map(|parsed| parsed.ingredient_rows())
+                    .unwrap_or_default();
+                if !rows.is_empty() {
+                    extras.ingredients = rows
+                        .iter()
+                        .map(|row| crate::db::ingredients::normalize_ingredient(&row.name))
+                        .collect();
+                    filled_ingredients.push((recipe.id, rows));
+                }
+            }
+
+            search_index.index_recipe_full(&mut writer, &recipe, &extras)?;
 
             resolved.push((recipe.id, locale));
         }
@@ -512,6 +552,23 @@ pub async fn backfill_locales(
         // Commit the index for this batch before touching the DB (Finding 2):
         // see the doc comment above for why the ordering matters.
         search_index.commit(&mut writer)?;
+
+        for (recipe_id, facts) in filled_facts {
+            crate::db::recipes::update_recipe_facts(
+                pool,
+                recipe_id,
+                facts.servings,
+                facts.total_time_minutes,
+                facts.difficulty.as_deref(),
+            )
+            .await?;
+            stats.facts_filled += 1;
+        }
+
+        for (recipe_id, rows) in filled_ingredients {
+            crate::db::ingredients::set_recipe_ingredients(pool, recipe_id, &rows).await?;
+            stats.ingredients_filled += 1;
+        }
 
         for (recipe_id, locale) in resolved {
             let Some(locale) = locale else {
@@ -594,7 +651,7 @@ pub async fn cleanup_recipes(
     use crate::github::indexer::recipe_title;
 
     let mut stats = CleanupStats::default();
-    let mut writer = search_index.writer()?;
+    let mut writer = search_index.locked_writer().await?;
 
     let github_recipes: Vec<GitHubRecipe> =
         sqlx::query_as("SELECT * FROM github_recipes ORDER BY id")
@@ -631,19 +688,8 @@ pub async fn cleanup_recipes(
             .await?;
 
         let recipe = crate::db::recipes::get_recipe(pool, recipe.id).await?;
-        let tags = crate::db::tags::get_tags_for_recipe(pool, recipe.id).await?;
-        let ingredients = crate::db::ingredients::get_ingredients_for_recipe(pool, recipe.id)
-            .await?
-            .iter()
-            .map(|i| i.name.clone())
-            .collect::<Vec<_>>();
-        search_index.index_recipe(
-            &mut writer,
-            &recipe,
-            Some(&github_recipe.file_path),
-            &tags,
-            &ingredients,
-        )?;
+        let extras = crate::indexer::extras::IndexExtras::load(pool, &recipe).await?;
+        search_index.index_recipe_full(&mut writer, &recipe, &extras)?;
         stats.retitled += 1;
     }
 

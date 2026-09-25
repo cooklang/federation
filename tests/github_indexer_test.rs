@@ -302,3 +302,129 @@ async fn identical_recipe_in_a_fork_is_indexed_once() {
     assert_eq!(h.titles().await, vec!["Tiramisu Brownies"]);
     assert_eq!(h.search_ids("mascarpone").len(), 1);
 }
+
+#[tokio::test]
+async fn indexed_recipes_carry_tags_and_feed_title() {
+    use federation::indexer::filters::{SearchFilters, SortOrder};
+
+    let h = Harness::new().await;
+    let mut repo = FakeRepo::new("alice", "recipes").await;
+    repo.set_files(&[(
+        "Brownies.cook",
+        "---\ntags: [desserts, chocolate]\n---\nMelt @chocolate{200%g}.\n",
+    )])
+    .await;
+    h.indexer(&repo).add_repository(&repo.url()).await.unwrap();
+
+    let query = SearchQuery {
+        q: String::new(),
+        page: 1,
+        limit: 10,
+        locale: None,
+    };
+    let filters = SearchFilters {
+        tags: vec!["dessert".to_string()],
+        ..SearchFilters::default()
+    };
+    let results = h
+        .search
+        .search_with(&query, &filters, SortOrder::Relevance, 100)
+        .unwrap();
+
+    assert_eq!(results.results.len(), 1);
+    // The fake repository has no description, so the feed is titled by its full name.
+    assert_eq!(
+        results.results[0].feed_title.as_deref(),
+        Some("alice/recipes")
+    );
+}
+
+#[tokio::test]
+async fn metadata_servings_time_and_difficulty_are_stored_and_filterable() {
+    use federation::indexer::filters::{SearchFilters, SortOrder};
+
+    let h = Harness::new().await;
+    let mut repo = FakeRepo::new("alice", "recipes").await;
+    repo.set_files(&[(
+        "Stew.cook",
+        "---\nservings: 4\ntime: 1h 30min\ndifficulty: Medium\n---\nSimmer @beef{500%g}.\n",
+    )])
+    .await;
+    let feed_id = h.indexer(&repo).add_repository(&repo.url()).await.unwrap();
+
+    let recipe = db::recipes::list_all_recipes(&h.pool, 100, 0)
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(recipe.servings, Some(4));
+    assert_eq!(recipe.total_time_minutes, Some(90));
+    assert_eq!(recipe.difficulty.as_deref(), Some("medium"));
+
+    let query = SearchQuery {
+        q: String::new(),
+        page: 1,
+        limit: 10,
+        locale: None,
+    };
+    let matching = SearchFilters {
+        max_time: Some(90),
+        min_servings: Some(4),
+        difficulty: Some("medium".to_string()),
+        ..SearchFilters::default()
+    };
+    let found = h
+        .search
+        .search_with(&query, &matching, SortOrder::Relevance, 100)
+        .unwrap();
+    assert_eq!(found.results.len(), 1);
+    assert_eq!(found.results[0].recipe_id, recipe.id);
+
+    let too_slow = SearchFilters {
+        max_time: Some(60),
+        ..SearchFilters::default()
+    };
+    assert!(h
+        .search
+        .search_with(&query, &too_slow, SortOrder::Relevance, 100)
+        .unwrap()
+        .results
+        .is_empty());
+
+    // The file is the only source: an edit that drops a key clears the column.
+    repo.set_files(&[("Stew.cook", "---\nservings: 6\n---\nSimmer @beef{500%g}.\n")])
+        .await;
+    h.indexer(&repo).index_repository(feed_id).await.unwrap();
+
+    let after = db::recipes::get_recipe(&h.pool, recipe.id).await.unwrap();
+    assert_eq!(after.servings, Some(6));
+    assert_eq!(after.total_time_minutes, None);
+    assert_eq!(after.difficulty, None);
+}
+
+#[tokio::test]
+async fn an_update_that_does_not_parse_keeps_the_stored_facts() {
+    let h = Harness::new().await;
+    let mut repo = FakeRepo::new("alice", "recipes").await;
+    repo.set_files(&[(
+        "Stew.cook",
+        "---\nservings: 4\ntime: 1h 30min\ndifficulty: Medium\n---\nSimmer @beef{500%g}.\n",
+    )])
+    .await;
+    let feed_id = h.indexer(&repo).add_repository(&repo.url()).await.unwrap();
+    let recipe = db::recipes::list_all_recipes(&h.pool, 100, 0)
+        .await
+        .unwrap()
+        .remove(0);
+
+    // `@salt{%}` is a cooklang parse error.
+    let broken = "---\nservings: 6\n---\nSimmer @beef{500%g} and @salt{%}.\n";
+    assert!(federation::indexer::parse_cooklang_full(broken).is_err());
+    repo.set_files(&[("Stew.cook", broken)]).await;
+    h.indexer(&repo).index_repository(feed_id).await.unwrap();
+
+    let after = db::recipes::get_recipe(&h.pool, recipe.id).await.unwrap();
+    assert_eq!(after.content.as_deref(), Some(broken), "the update did run");
+    assert_eq!(after.servings, Some(4));
+    assert_eq!(after.total_time_minutes, Some(90));
+    assert_eq!(after.difficulty.as_deref(), Some("medium"));
+}

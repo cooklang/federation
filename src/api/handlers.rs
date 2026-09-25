@@ -1,11 +1,13 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     Json,
 };
 use std::sync::Arc;
 use tracing::debug;
 
-use crate::{api::models::*, db, indexer::search::SearchQuery, Error, Result};
+use crate::{
+    api::models::*, api::query::ValidatedQuery, db, indexer::search::SearchQuery, Error, Result,
+};
 
 /// Shared application state
 #[derive(Clone)]
@@ -14,45 +16,61 @@ pub struct AppState {
     pub search_index: Arc<crate::indexer::search::SearchIndex>,
     pub github_indexer: Option<crate::github::GitHubIndexer>,
     pub settings: crate::config::Settings,
+    pub facets_cache: Arc<crate::api::facets::FacetsCache>,
 }
 
 /// GET /api/search - Search recipes
 pub async fn search_recipes(
     State(state): State<AppState>,
-    Query(params): Query<SearchParams>,
+    ValidatedQuery(params): ValidatedQuery<SearchParams>,
 ) -> Result<Json<SearchResponse>> {
     debug!("Search request: {:?}", params);
+
+    let (filters, sort) = params.filters.parse()?;
 
     // Build search query
     let query = SearchQuery {
         q: params.q,
-        page: params.page,
-        limit: params.limit.min(state.settings.pagination.api_max_limit),
+        page: params.page.max(1),
+        limit: params
+            .limit
+            .min(state.settings.pagination.api_max_limit)
+            .max(1),
         locale: params.locale,
     };
 
     // Execute search
-    let results = state
-        .search_index
-        .search(&query, state.settings.pagination.max_search_results)?;
+    let results = state.search_index.search_with(
+        &query,
+        &filters,
+        sort,
+        state.settings.pagination.max_search_results,
+    )?;
 
     // Batch fetch tags for all recipes (avoid N+1 query problem)
     let recipe_ids: Vec<i64> = results.results.iter().map(|r| r.recipe_id).collect();
     let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
 
-    // Build recipe cards
-    let mut recipe_cards = Vec::new();
-    for result in results.results {
-        let tags = tags_map.get(&result.recipe_id).cloned().unwrap_or_default();
-
-        recipe_cards.push(RecipeCard {
+    // Card fields come from the stored search document; no per-hit DB lookup.
+    let recipe_cards = results
+        .results
+        .into_iter()
+        .map(|result| RecipeCard {
             id: result.recipe_id,
+            tags: tags_map.get(&result.recipe_id).cloned().unwrap_or_default(),
             title: result.title,
             summary: result.summary,
-            tags,
             locale: result.locale,
-        });
-    }
+            total_time_minutes: result.total_time_minutes,
+            servings: result.servings,
+            difficulty: result.difficulty,
+            image_url: result.image_url,
+            feed: result.feed_id.map(|id| CardFeed {
+                id,
+                title: result.feed_title,
+            }),
+        })
+        .collect();
 
     Ok(Json(SearchResponse {
         results: recipe_cards,
@@ -63,6 +81,25 @@ pub async fn search_recipes(
             total_pages: results.total_pages,
         },
     }))
+}
+
+/// GET /api/facets - Tag, language and difficulty counts for filter UIs
+pub async fn get_facets(
+    State(state): State<AppState>,
+    ValidatedQuery(params): ValidatedQuery<FacetsParams>,
+) -> Result<Json<FacetsResponse>> {
+    debug!("Facets request: {:?}", params);
+
+    let tag_limit = crate::api::facets::parse_tag_limit(params.tag_limit.as_deref())?;
+    let pool = state.pool.clone();
+    let facets = state
+        .facets_cache
+        .get_or_load(|| async move { crate::api::facets::load_facets(&pool).await })
+        .await?;
+
+    let mut response = (*facets).clone();
+    response.tags.truncate(tag_limit);
+    Ok(Json(response))
 }
 
 /// GET /api/recipes/:id - Get recipe details
@@ -134,7 +171,7 @@ pub async fn download_recipe(State(state): State<AppState>, Path(id): Path<i64>)
 /// GET /api/feeds - List all feeds
 pub async fn list_feeds(
     State(state): State<AppState>,
-    Query(params): Query<FeedListParams>,
+    ValidatedQuery(params): ValidatedQuery<FeedListParams>,
 ) -> Result<Json<FeedsResponse>> {
     debug!("List feeds request: {:?}", params);
 
