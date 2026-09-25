@@ -373,4 +373,176 @@ mod tests {
         assert_eq!(json["locale"].as_str().unwrap(), "de");
         assert_eq!(json["locale_source"].as_str().unwrap(), "declared");
     }
+
+    /// Two indexed English recipes in one feed:
+    /// "Quick Garlic Pasta" (20 min, serves 2, tags dinner+quick) and
+    /// "Slow Garlic Stew" (180 min, serves 6, tag dinner). Returns their ids.
+    async fn seed_search_fixture(state: &AppState) -> (i64, i64) {
+        use crate::db::models::{NewFeed, NewRecipe};
+        use crate::db::{feeds, recipes, tags};
+        use crate::indexer::extras::IndexExtras;
+
+        let feed = feeds::create_feed(
+            &state.pool,
+            &NewFeed {
+                url: "https://example.com/filters.xml".to_string(),
+                title: Some("Filter Feed".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let make = |external_id: &str, title: &str, total_time: i64, servings: i64| NewRecipe {
+            feed_id: feed.id,
+            external_id: external_id.to_string(),
+            title: title.to_string(),
+            source_url: None,
+            enclosure_url: format!("https://example.com/{external_id}.cook"),
+            content: None,
+            summary: Some(format!("{title} summary")),
+            servings: Some(servings),
+            total_time_minutes: Some(total_time),
+            active_time_minutes: None,
+            difficulty: Some("easy".to_string()),
+            image_url: Some(format!("https://example.com/{external_id}.jpg")),
+            published_at: None,
+            content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
+            locale: Some("en".to_string()),
+            locale_source: Some("declared".to_string()),
+        };
+
+        let quick =
+            recipes::create_recipe(&state.pool, &make("quick", "Quick Garlic Pasta", 20, 2))
+                .await
+                .unwrap();
+        let slow = recipes::create_recipe(&state.pool, &make("slow", "Slow Garlic Stew", 180, 6))
+            .await
+            .unwrap();
+        tags::set_recipe_tags(&state.pool, quick.id, &["dinner".into(), "quick".into()])
+            .await
+            .unwrap();
+        tags::set_recipe_tags(&state.pool, slow.id, &["dinner".into()])
+            .await
+            .unwrap();
+
+        let mut writer = state.search_index.writer().unwrap();
+        for recipe in [&quick, &slow] {
+            let extras = IndexExtras {
+                file_path: None,
+                tags: tags::get_tags_for_recipe(&state.pool, recipe.id)
+                    .await
+                    .unwrap(),
+                ingredients: vec!["garlic".to_string()],
+                feed_title: Some("Filter Feed".to_string()),
+            };
+            state
+                .search_index
+                .index_recipe_full(&mut writer, recipe, &extras)
+                .unwrap();
+        }
+        state.search_index.commit(&mut writer).unwrap();
+
+        (quick.id, slow.id)
+    }
+
+    async fn get_json(state: &AppState, uri: &str) -> (StatusCode, serde_json::Value) {
+        let app = create_router(state.clone(), &state.settings);
+        let response = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        (status, response_json(response).await)
+    }
+
+    fn result_ids(json: &serde_json::Value) -> Vec<i64> {
+        let mut ids: Vec<i64> = json["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["id"].as_i64().unwrap())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    #[tokio::test]
+    async fn search_structured_filters_narrow_results() {
+        let (state, _index_dir) = create_test_state().await;
+        let (quick, slow) = seed_search_fixture(&state).await;
+
+        let (status, json) = get_json(&state, "/api/search?q=garlic&max_time=30").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(result_ids(&json), vec![quick]);
+
+        let (_, json) = get_json(&state, "/api/search?tags=dinner,%20quick").await;
+        assert_eq!(result_ids(&json), vec![quick]);
+
+        // Filters and ordinary params (page) deserialize side by side.
+        let (_, json) = get_json(&state, "/api/search?min_servings=4&max_servings=8&page=1").await;
+        assert_eq!(result_ids(&json), vec![slow]);
+
+        let (_, json) = get_json(
+            &state,
+            "/api/search?q=garlic&locale=en&exclude_ingredients=garlic",
+        )
+        .await;
+        assert!(result_ids(&json).is_empty());
+
+        let (_, json) = get_json(&state, "/api/search?difficulty=EASY&sort=newest").await;
+        assert_eq!(result_ids(&json), vec![quick, slow]);
+    }
+
+    #[tokio::test]
+    async fn search_cards_carry_rich_fields() {
+        let (state, _index_dir) = create_test_state().await;
+        let (quick, _) = seed_search_fixture(&state).await;
+
+        let (status, json) = get_json(&state, "/api/search?q=quick").await;
+        assert_eq!(status, StatusCode::OK);
+        let card = &json["results"][0];
+        assert_eq!(card["id"].as_i64().unwrap(), quick);
+        assert_eq!(card["total_time_minutes"], 20);
+        assert_eq!(card["servings"], 2);
+        assert_eq!(card["difficulty"], "easy");
+        assert_eq!(card["image_url"], "https://example.com/quick.jpg");
+        assert_eq!(card["feed"]["title"], "Filter Feed");
+        assert!(card["feed"]["id"].as_i64().is_some());
+        assert_eq!(card["tags"], serde_json::json!(["dinner", "quick"]));
+        assert_eq!(card["locale"], "en");
+    }
+
+    #[tokio::test]
+    async fn search_rejects_bad_parameters_with_400() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        for (uri, needle) in [
+            ("/api/search?max_time=soon", "max_time"),
+            ("/api/search?min_servings=-2", "min_servings"),
+            ("/api/search?sort=rating", "sort"),
+            ("/api/search?q=nosuchfield:pasta", "Invalid query"),
+        ] {
+            let (status, json) = get_json(&state, uri).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+            assert!(
+                json["error"].as_str().unwrap().contains(needle),
+                "{uri}: {json}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn search_with_zero_limit_does_not_fail() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        let (status, json) = get_json(&state, "/api/search?limit=0").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["results"].as_array().unwrap().len(), 1);
+        assert_eq!(json["pagination"]["limit"], 1);
+    }
 }

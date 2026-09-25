@@ -23,36 +23,51 @@ pub async fn search_recipes(
 ) -> Result<Json<SearchResponse>> {
     debug!("Search request: {:?}", params);
 
+    let (filters, sort) = params.filters.parse()?;
+
     // Build search query
     let query = SearchQuery {
         q: params.q,
-        page: params.page,
-        limit: params.limit.min(state.settings.pagination.api_max_limit),
+        page: params.page.max(1),
+        limit: params
+            .limit
+            .min(state.settings.pagination.api_max_limit)
+            .max(1),
         locale: params.locale,
     };
 
     // Execute search
-    let results = state
-        .search_index
-        .search(&query, state.settings.pagination.max_search_results)?;
+    let results = state.search_index.search_with(
+        &query,
+        &filters,
+        sort,
+        state.settings.pagination.max_search_results,
+    )?;
 
     // Batch fetch tags for all recipes (avoid N+1 query problem)
     let recipe_ids: Vec<i64> = results.results.iter().map(|r| r.recipe_id).collect();
     let tags_map = db::tags::get_tags_for_recipes(&state.pool, &recipe_ids).await?;
 
-    // Build recipe cards
-    let mut recipe_cards = Vec::new();
-    for result in results.results {
-        let tags = tags_map.get(&result.recipe_id).cloned().unwrap_or_default();
-
-        recipe_cards.push(RecipeCard {
+    // Card fields come from the stored search document; no per-hit DB lookup.
+    let recipe_cards = results
+        .results
+        .into_iter()
+        .map(|result| RecipeCard {
             id: result.recipe_id,
+            tags: tags_map.get(&result.recipe_id).cloned().unwrap_or_default(),
             title: result.title,
             summary: result.summary,
-            tags,
             locale: result.locale,
-        });
-    }
+            total_time_minutes: result.total_time_minutes,
+            servings: result.servings,
+            difficulty: result.difficulty,
+            image_url: result.image_url,
+            feed: result.feed_id.map(|id| CardFeed {
+                id,
+                title: result.feed_title,
+            }),
+        })
+        .collect();
 
     Ok(Json(SearchResponse {
         results: recipe_cards,
