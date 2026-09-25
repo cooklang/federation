@@ -400,7 +400,9 @@ mod tests {
             title: title.to_string(),
             source_url: None,
             enclosure_url: format!("https://example.com/{external_id}.cook"),
-            content: None,
+            // Non-NULL so this recipe counts toward the SQL-backed facets
+            // (`content IS NOT NULL`, matching what a rebuild would index).
+            content: Some("Recipe body text.".to_string()),
             summary: Some(format!("{title} summary")),
             servings: Some(servings),
             total_time_minutes: Some(total_time),
@@ -636,7 +638,9 @@ mod tests {
             title: format!("Recipe {external_id}"),
             source_url: None,
             enclosure_url: format!("https://example.com/{external_id}.cook"),
-            content: None,
+            // Non-NULL so this recipe counts toward `language_facets`
+            // (`content IS NOT NULL`, matching what a rebuild would index).
+            content: Some("Recipe body text.".to_string()),
             summary: None,
             servings: None,
             total_time_minutes: None,

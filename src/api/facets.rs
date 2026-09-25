@@ -132,7 +132,11 @@ mod tests {
     use crate::db::models::{NewFeed, NewRecipe};
 
     /// en, en-US, de and an unknown-locale recipe; three tagged dessert, two
-    /// vegan, one soup; difficulties "easy", "easy", "hard" and none.
+    /// vegan, one soup; difficulties "easy", "easy", "hard" and none. A fifth
+    /// recipe ("e") carries a locale, a difficulty and a tag of its own but
+    /// has NULL `content` — `backfill-locales` only reindexes recipes with
+    /// `content IS NOT NULL`, so facet counts must ignore it the same way, or
+    /// they would promise results a rebuild can't actually serve.
     ///
     /// `difficulty` is only ever "easy", "medium", "hard" or NULL in this
     /// table (`recipes.difficulty`'s `CHECK` constraint,
@@ -153,14 +157,40 @@ mod tests {
         .await
         .unwrap();
 
-        type SeedRow<'a> = (&'a str, Option<&'a str>, Option<&'a str>, &'a [&'a str]);
-        let rows: [SeedRow; 4] = [
-            ("a", Some("en"), Some("easy"), &["dessert", "vegan"]),
-            ("b", Some("en-US"), Some("easy"), &["dessert"]),
-            ("c", Some("de"), Some("hard"), &["dessert", "vegan"]),
-            ("d", None, None, &["soup"]),
+        type SeedRow<'a> = (
+            &'a str,
+            Option<&'a str>,
+            Option<&'a str>,
+            &'a [&'a str],
+            Option<&'a str>,
+        );
+        let rows: [SeedRow; 5] = [
+            (
+                "a",
+                Some("en"),
+                Some("easy"),
+                &["dessert", "vegan"],
+                Some("Content a"),
+            ),
+            (
+                "b",
+                Some("en-US"),
+                Some("easy"),
+                &["dessert"],
+                Some("Content b"),
+            ),
+            (
+                "c",
+                Some("de"),
+                Some("hard"),
+                &["dessert", "vegan"],
+                Some("Content c"),
+            ),
+            ("d", None, None, &["soup"], Some("Content d")),
+            // NULL content: not indexed by a rebuild, so must not be counted.
+            ("e", Some("es"), Some("medium"), &["excluded"], None),
         ];
-        for (external_id, locale, difficulty, tag_names) in rows {
+        for (external_id, locale, difficulty, tag_names, content) in rows {
             let recipe = db::recipes::create_recipe(
                 &pool,
                 &NewRecipe {
@@ -169,7 +199,7 @@ mod tests {
                     title: format!("Recipe {external_id}"),
                     source_url: None,
                     enclosure_url: format!("https://example.com/{external_id}.cook"),
-                    content: None,
+                    content: content.map(str::to_string),
                     summary: None,
                     servings: None,
                     total_time_minutes: None,
@@ -224,6 +254,12 @@ mod tests {
             .map(|d| (d.name.as_str(), d.count))
             .collect();
         assert_eq!(difficulties, vec![("easy", 2), ("hard", 1)]);
+
+        // Recipe "e" has a locale, a difficulty and a tag, but NULL content:
+        // a rebuild would never index it, so it must not show up here either.
+        assert!(!facets.tags.iter().any(|t| t.name == "excluded"));
+        assert!(!facets.locales.iter().any(|l| l.code == "es"));
+        assert!(!facets.difficulties.iter().any(|d| d.name == "medium"));
     }
 
     #[tokio::test]

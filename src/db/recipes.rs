@@ -526,13 +526,16 @@ pub async fn update_recipe_facts(
 }
 
 /// Every distinct locale present in the database with its recipe count,
-/// most common first. Used to populate the language filter.
+/// most common first. Used to populate the language filter. Only counts
+/// recipes with content: a rebuild (`backfill-locales`) only reindexes
+/// recipes with `content IS NOT NULL`, so a NULL-content recipe's locale
+/// would promise a filter no rebuilt index can actually serve.
 pub async fn list_locales(pool: &DbPool) -> Result<Vec<(String, i64)>> {
     let rows: Vec<(String, i64)> = sqlx::query_as(
         r#"
         SELECT locale, COUNT(*) as count
         FROM recipes
-        WHERE locale IS NOT NULL
+        WHERE locale IS NOT NULL AND content IS NOT NULL
         GROUP BY locale
         ORDER BY count DESC, locale ASC
         "#,
@@ -548,13 +551,14 @@ pub async fn list_locales(pool: &DbPool) -> Result<Vec<(String, i64)>> {
 /// is already restricted to lowercase "easy"/"medium"/"hard" by a `CHECK`
 /// constraint (`migrations/001_init.sql:32`) and by
 /// `recipe_facts::allowed_difficulty`; `LOWER(TRIM(...))` is a defensive
-/// no-op kept so this stays correct if that guarantee ever loosens.
+/// no-op kept so this stays correct if that guarantee ever loosens. Only
+/// counts recipes with content, for the same reason as [`list_locales`].
 pub async fn list_difficulties(pool: &DbPool) -> Result<Vec<(String, i64)>> {
     let rows: Vec<(String, i64)> = sqlx::query_as(
         r#"
         SELECT LOWER(TRIM(difficulty)) AS name, COUNT(*) AS count
         FROM recipes
-        WHERE difficulty IS NOT NULL AND TRIM(difficulty) <> ''
+        WHERE difficulty IS NOT NULL AND TRIM(difficulty) <> '' AND content IS NOT NULL
         GROUP BY LOWER(TRIM(difficulty))
         ORDER BY count DESC, name ASC
         "#,
@@ -868,7 +872,9 @@ mod tests {
                     title: format!("Recipe {i}"),
                     source_url: None,
                     enclosure_url: format!("https://example.com/recipe-{i}.cook"),
-                    content: None,
+                    // Non-NULL so this recipe counts (`content IS NOT NULL`,
+                    // matching what a rebuild would index).
+                    content: Some(format!("Content {i}")),
                     summary: None,
                     servings: None,
                     total_time_minutes: None,
@@ -888,8 +894,39 @@ mod tests {
             .unwrap();
         }
 
-        // Most common first; ties broken alphabetically; NULL locales excluded.
+        // A locale with NULL content: a rebuild (`backfill-locales`) never
+        // indexes it, so it must not appear in the count either.
+        create_recipe(
+            &pool,
+            &NewRecipe {
+                feed_id: feed.id,
+                external_id: "recipe-unindexed".to_string(),
+                title: "Recipe unindexed".to_string(),
+                source_url: None,
+                enclosure_url: "https://example.com/recipe-unindexed.cook".to_string(),
+                content: None,
+                summary: None,
+                servings: None,
+                total_time_minutes: None,
+                active_time_minutes: None,
+                difficulty: None,
+                image_url: None,
+                published_at: None,
+                content_hash: None,
+                content_etag: None,
+                content_last_modified: None,
+                feed_entry_updated: None,
+                locale: Some("es".to_string()),
+                locale_source: Some("detected".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+
+        // Most common first; ties broken alphabetically; NULL locales
+        // excluded; the NULL-content "es" recipe excluded too.
         let listed = list_locales(&pool).await.unwrap();
+        assert!(!listed.iter().any(|(code, _)| code == "es"));
         assert_eq!(
             listed,
             vec![
