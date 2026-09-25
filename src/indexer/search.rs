@@ -1,5 +1,7 @@
 use crate::db::models::Recipe;
 use crate::error::{Error, Result};
+use crate::indexer::extras::IndexExtras;
+use crate::indexer::filters::normalize_difficulty;
 use crate::indexer::locale::normalize_code;
 use crate::indexer::plain_text::instructions_text;
 use crate::indexer::schema::RecipeSchema;
@@ -99,31 +101,33 @@ impl SearchIndex {
             .map_err(|e| Error::Search(format!("Failed to create writer: {e}")))
     }
 
-    /// Index a recipe
-    pub fn index_recipe(
+    /// Index a recipe with everything a search document carries: the row's own
+    /// fields plus the tags, ingredients, file path and feed title in `extras`.
+    /// Deletes any existing document for the recipe first, so re-indexing is
+    /// idempotent.
+    pub fn index_recipe_full(
         &self,
         writer: &mut IndexWriter,
         recipe: &Recipe,
-        file_path: Option<&str>,
-        tags: &[String],
-        ingredients: &[String],
+        extras: &IndexExtras,
     ) -> Result<()> {
         debug!("Indexing recipe: {}", recipe.id);
 
         // Delete existing documents with this recipe_id FIRST
         let term = Term::from_field_i64(self.schema.id, recipe.id);
         writer.delete_term(term);
-        debug!(
-            "Deleted existing search documents for recipe_id: {}",
-            recipe.id
-        );
+
+        // `indexed_at` in the DB is optional; the row's creation time is when the
+        // recipe entered the federation, which is what `sort=newest` means.
+        let indexed_at = recipe.indexed_at.unwrap_or(recipe.created_at).timestamp();
 
         let mut doc = doc!(
             self.schema.id => recipe.id,
             self.schema.title => recipe.title.clone(),
+            self.schema.feed_id => recipe.feed_id,
+            self.schema.indexed_at => indexed_at,
         );
 
-        // Add summary
         if let Some(summary) = &recipe.summary {
             doc.add_text(self.schema.summary, summary);
         }
@@ -133,23 +137,33 @@ impl SearchIndex {
             doc.add_text(self.schema.instructions, instructions_text(content));
         }
 
-        // Add servings
         if let Some(servings) = recipe.servings {
             doc.add_i64(self.schema.servings, servings);
         }
 
-        // Add total time
         if let Some(time) = recipe.total_time_minutes {
             doc.add_i64(self.schema.total_time, time);
         }
 
-        // Add difficulty
+        // Difficulty is an exact-match field: store it canonically so the
+        // `difficulty=` filter and facet values agree.
         if let Some(difficulty) = &recipe.difficulty {
-            doc.add_text(self.schema.difficulty, difficulty);
+            let difficulty = normalize_difficulty(difficulty);
+            if !difficulty.is_empty() {
+                doc.add_text(self.schema.difficulty, difficulty);
+            }
+        }
+
+        if let Some(image_url) = &recipe.image_url {
+            doc.add_text(self.schema.image_url, image_url);
+        }
+
+        if let Some(feed_title) = &extras.feed_title {
+            doc.add_text(self.schema.feed_title, feed_title);
         }
 
         // Add file path (for GitHub recipes)
-        if let Some(path) = file_path {
+        if let Some(path) = &extras.file_path {
             doc.add_text(self.schema.file_path, path);
         }
 
@@ -163,13 +177,11 @@ impl SearchIndex {
             }
         }
 
-        // Add tags
-        for tag in tags {
+        for tag in &extras.tags {
             doc.add_text(self.schema.tags, tag);
         }
 
-        // Add ingredients
-        for ingredient in ingredients {
+        for ingredient in &extras.ingredients {
             doc.add_text(self.schema.ingredients, ingredient);
         }
 
@@ -178,29 +190,26 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Add tags to a recipe in the index
-    pub fn add_recipe_tags(
+    /// Index a recipe without a feed title. Kept for tests and simple callers;
+    /// production paths load [`IndexExtras`] and call [`Self::index_recipe_full`].
+    pub fn index_recipe(
         &self,
-        _writer: &mut IndexWriter,
-        _recipe_id: i64,
-        _tags: &[String],
+        writer: &mut IndexWriter,
+        recipe: &Recipe,
+        file_path: Option<&str>,
+        tags: &[String],
+        ingredients: &[String],
     ) -> Result<()> {
-        // Note: In a real implementation, we'd need to fetch the full recipe
-        // and re-index it with tags. For now, this is a placeholder.
-        // This would be improved in a production implementation.
-
-        Ok(())
-    }
-
-    /// Add ingredients to a recipe in the index
-    pub fn add_recipe_ingredients(
-        &self,
-        _writer: &mut IndexWriter,
-        _recipe_id: i64,
-        _ingredients: &[String],
-    ) -> Result<()> {
-        // Similar to tags - would need full re-indexing
-        Ok(())
+        self.index_recipe_full(
+            writer,
+            recipe,
+            &IndexExtras {
+                file_path: file_path.map(str::to_string),
+                tags: tags.to_vec(),
+                ingredients: ingredients.to_vec(),
+                feed_title: None,
+            },
+        )
     }
 
     /// Delete a recipe from the index
@@ -1001,6 +1010,101 @@ mod quality_tests {
         assert!(
             ids(&index.search(&q("instructions:title", 1, 10), 100).unwrap()).is_empty(),
             "frontmatter keys are not indexed"
+        );
+    }
+}
+
+#[cfg(test)]
+mod card_tests {
+    use super::*;
+    use crate::db::models::Recipe;
+    use crate::indexer::extras::IndexExtras;
+    use chrono::TimeZone;
+    use tantivy::schema::Value;
+    use tempfile::tempdir;
+
+    fn created_at() -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc.with_ymd_and_hms(2026, 9, 1, 12, 0, 0).unwrap()
+    }
+
+    fn card_recipe() -> Recipe {
+        Recipe {
+            id: 7,
+            feed_id: 12,
+            external_id: "ext-7".to_string(),
+            title: "Lemon Tart".to_string(),
+            source_url: Some("https://example.com/lemon-tart".to_string()),
+            enclosure_url: "https://example.com/lemon-tart.cook".to_string(),
+            content: Some("Bake the @pastry{}.".to_string()),
+            summary: Some("Sharp and sweet.".to_string()),
+            servings: Some(6),
+            total_time_minutes: Some(45),
+            active_time_minutes: Some(20),
+            difficulty: Some(" Easy ".to_string()),
+            image_url: Some("https://example.com/lemon-tart.jpg".to_string()),
+            published_at: None,
+            updated_at: None,
+            indexed_at: None,
+            created_at: created_at(),
+            content_hash: None,
+            content_etag: None,
+            content_last_modified: None,
+            feed_entry_updated: None,
+            locale: Some("en".to_string()),
+            locale_source: Some("declared".to_string()),
+        }
+    }
+
+    fn card_extras() -> IndexExtras {
+        IndexExtras {
+            file_path: None,
+            tags: vec!["dessert".to_string()],
+            ingredients: vec!["pastry".to_string()],
+            feed_title: Some("Jane's Kitchen".to_string()),
+        }
+    }
+
+    #[test]
+    fn index_recipe_full_stores_card_fields() {
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+        let mut writer = index.writer().unwrap();
+        index
+            .index_recipe_full(&mut writer, &card_recipe(), &card_extras())
+            .unwrap();
+        index.commit(&mut writer).unwrap();
+
+        let searcher = index.reader.searcher();
+        let top = searcher
+            .search(&tantivy::query::AllQuery, &TopDocs::with_limit(1))
+            .unwrap();
+        let doc = searcher.doc::<tantivy::TantivyDocument>(top[0].1).unwrap();
+
+        assert_eq!(
+            doc.get_first(index.schema.feed_id).and_then(|v| v.as_i64()),
+            Some(12)
+        );
+        assert_eq!(
+            doc.get_first(index.schema.indexed_at)
+                .and_then(|v| v.as_i64()),
+            Some(created_at().timestamp()),
+            "indexed_at falls back to created_at"
+        );
+        assert_eq!(
+            doc.get_first(index.schema.image_url)
+                .and_then(|v| v.as_str()),
+            Some("https://example.com/lemon-tart.jpg")
+        );
+        assert_eq!(
+            doc.get_first(index.schema.feed_title)
+                .and_then(|v| v.as_str()),
+            Some("Jane's Kitchen")
+        );
+        assert_eq!(
+            doc.get_first(index.schema.difficulty)
+                .and_then(|v| v.as_str()),
+            Some("easy"),
+            "difficulty is normalised at index time"
         );
     }
 }
