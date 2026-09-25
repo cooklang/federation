@@ -6,10 +6,11 @@ use crate::indexer::locale::normalize_code;
 use crate::indexer::plain_text::instructions_text;
 use crate::indexer::schema::RecipeSchema;
 use serde::{Deserialize, Serialize};
+use std::ops::Bound;
 use std::path::Path;
 use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{
-    BooleanQuery, ConstScoreQuery, Occur, PhraseQuery, Query, QueryParser, TermQuery,
+    BooleanQuery, ConstScoreQuery, Occur, PhraseQuery, Query, QueryParser, RangeQuery, TermQuery,
 };
 use tantivy::schema::IndexRecordOption;
 use tantivy::tokenizer::TokenStream;
@@ -352,6 +353,43 @@ impl SearchIndex {
             if let Some(query) = self.text_match_query(self.schema.ingredients, ingredient)? {
                 clauses.push((Occur::MustNot, query));
             }
+        }
+
+        if let Some(max_time) = filters.max_time {
+            let range = RangeQuery::new_i64_bounds(
+                "total_time".to_string(),
+                Bound::Unbounded,
+                Bound::Included(max_time),
+            );
+            clauses.push((Occur::Must, unscored(Box::new(range))));
+        }
+
+        if filters.min_servings.is_some() || filters.max_servings.is_some() {
+            let lower = filters
+                .min_servings
+                .map_or(Bound::Unbounded, Bound::Included);
+            let upper = filters
+                .max_servings
+                .map_or(Bound::Unbounded, Bound::Included);
+            let range = RangeQuery::new_i64_bounds("servings".to_string(), lower, upper);
+            clauses.push((Occur::Must, unscored(Box::new(range))));
+        }
+
+        if let Some(difficulty) = &filters.difficulty {
+            let term =
+                Term::from_field_text(self.schema.difficulty, &normalize_difficulty(difficulty));
+            clauses.push((
+                Occur::Must,
+                unscored(Box::new(TermQuery::new(term, IndexRecordOption::Basic))),
+            ));
+        }
+
+        if let Some(feed_id) = filters.feed_id {
+            let term = Term::from_field_i64(self.schema.feed_id, feed_id);
+            clauses.push((
+                Occur::Must,
+                unscored(Box::new(TermQuery::new(term, IndexRecordOption::Basic))),
+            ));
         }
 
         Ok(clauses)
@@ -1564,5 +1602,61 @@ mod filter_tests {
             ..SearchFilters::default()
         };
         assert_eq!(ids(&f, "lemon", None, &filters), vec![2]);
+    }
+
+    #[test]
+    fn max_time_keeps_recipes_at_or_under_the_limit() {
+        let f = corpus();
+        let filters = SearchFilters {
+            max_time: Some(30),
+            ..SearchFilters::default()
+        };
+        // Recipe 4 has no total time, so it cannot satisfy a time limit.
+        assert_eq!(ids(&f, "", None, &filters), vec![2, 3]);
+    }
+
+    #[test]
+    fn servings_range_is_inclusive() {
+        let f = corpus();
+        let range = |min: Option<i64>, max: Option<i64>| SearchFilters {
+            min_servings: min,
+            max_servings: max,
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &range(Some(3), None)), vec![1, 2]);
+        assert_eq!(ids(&f, "", None, &range(None, Some(4))), vec![2, 3]);
+        assert_eq!(ids(&f, "", None, &range(Some(2), Some(4))), vec![2, 3]);
+        assert_eq!(ids(&f, "", None, &range(Some(4), Some(4))), vec![2]);
+    }
+
+    #[test]
+    fn difficulty_matches_exactly_ignoring_case() {
+        let f = corpus();
+        let difficulty = |d: &str| SearchFilters {
+            difficulty: Some(d.to_string()),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &difficulty("EASY")), vec![2, 3]);
+        assert_eq!(ids(&f, "", None, &difficulty("medium")), vec![1]);
+    }
+
+    #[test]
+    fn feed_filter_keeps_one_feed() {
+        let f = corpus();
+        let filters = SearchFilters {
+            feed_id: Some(20),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "", None, &filters), vec![3, 4]);
+    }
+
+    #[test]
+    fn numeric_filters_combine_with_the_query() {
+        let f = corpus();
+        let filters = SearchFilters {
+            max_time: Some(20),
+            ..SearchFilters::default()
+        };
+        assert_eq!(ids(&f, "garlic", None, &filters), vec![3]);
     }
 }
