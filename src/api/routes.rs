@@ -871,4 +871,31 @@ mod tests {
         assert!(!html.contains("100 requests per second"));
         assert!(!html.contains("max 100)"));
     }
+
+    /// A `max_time` or `difficulty` the dropdowns do not offer (from a link or
+    /// the API's vocabulary) is kept as an extra selected option, so
+    /// resubmitting the form does not silently drop the filter.
+    #[tokio::test]
+    async fn website_form_keeps_filter_values_its_dropdowns_do_not_offer() {
+        let (state, _index_dir) = create_test_state().await;
+        seed_search_fixture(&state).await;
+
+        let (status, html) = get_text(&state, "/?max_time=45&difficulty=Tricky").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.contains(r#"<option value="45" selected>45 minutes or less</option>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<option value="tricky" selected>tricky</option>"#),
+            "{html}"
+        );
+
+        // Offered values are selected in place, with no extra option.
+        let (_, html) = get_text(&state, "/?max_time=30&difficulty=Easy").await;
+        assert!(html.contains(r#"<option value="30" selected>"#), "{html}");
+        assert!(html.contains(r#"<option value="easy" selected>"#), "{html}");
+        assert_eq!(html.matches(r#"<option value="30""#).count(), 1, "{html}");
+        assert_eq!(html.matches(r#"<option value="easy""#).count(), 1, "{html}");
+    }
 }

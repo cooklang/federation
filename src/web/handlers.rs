@@ -12,7 +12,7 @@ use crate::{
     api::query::ValidatedQuery,
     db,
     error::Error,
-    indexer::filters::SortOrder,
+    indexer::filters::{normalize_difficulty, SortOrder},
     indexer::search::{SearchQuery, SearchResults},
     Result,
 };
@@ -69,22 +69,60 @@ struct FilterForm {
     difficulty: String,
     feed_id: String,
     sort: String,
+    /// A `max_time` the dropdown does not offer, shown as an extra selected
+    /// option so resubmitting the form keeps it.
+    extra_max_time: Option<ExtraOption>,
+    /// Likewise for a `difficulty` other than easy/medium/hard.
+    extra_difficulty: Option<ExtraOption>,
 }
+
+/// A dropdown option for a value the form does not offer by default.
+#[derive(Clone)]
+#[allow(dead_code)] // Fields are used by Askama templates
+struct ExtraOption {
+    value: String,
+    label: String,
+}
+
+/// `max_time` values the search form's dropdown offers.
+const OFFERED_MAX_TIMES: [&str; 3] = ["15", "30", "60"];
+/// `difficulty` values the search form's dropdown offers.
+const OFFERED_DIFFICULTIES: [&str; 3] = ["easy", "medium", "hard"];
 
 impl FilterForm {
     fn from_params(params: &FilterParams) -> Self {
         let value =
             |field: &Option<String>| field.as_deref().unwrap_or_default().trim().to_string();
+        let max_time = value(&params.max_time);
+        // Normalised the way the search filter reads it.
+        let difficulty = normalize_difficulty(&value(&params.difficulty));
+        let extra_max_time = (!max_time.is_empty()
+            && !OFFERED_MAX_TIMES.contains(&max_time.as_str()))
+        .then(|| ExtraOption {
+            label: match max_time.parse::<u64>() {
+                Ok(minutes) => format!("{minutes} minutes or less"),
+                Err(_) => max_time.clone(),
+            },
+            value: max_time.clone(),
+        });
+        let extra_difficulty = (!difficulty.is_empty()
+            && !OFFERED_DIFFICULTIES.contains(&difficulty.as_str()))
+        .then(|| ExtraOption {
+            value: difficulty.clone(),
+            label: difficulty.clone(),
+        });
         Self {
             tags: value(&params.tags),
             include_ingredients: value(&params.include_ingredients),
             exclude_ingredients: value(&params.exclude_ingredients),
-            max_time: value(&params.max_time),
+            max_time,
             min_servings: value(&params.min_servings),
             max_servings: value(&params.max_servings),
-            difficulty: value(&params.difficulty),
+            difficulty,
             feed_id: value(&params.feed_id),
             sort: value(&params.sort),
+            extra_max_time,
+            extra_difficulty,
         }
     }
 }

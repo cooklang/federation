@@ -87,6 +87,7 @@ Search by field using <code class="bg-gray-100 px-1 rounded">tags:</code>, <code
                             <option value="15"{% if form.max_time == "15" %} selected{% endif %}>15 minutes or less</option>
                             <option value="30"{% if form.max_time == "30" %} selected{% endif %}>30 minutes or less</option>
                             <option value="60"{% if form.max_time == "60" %} selected{% endif %}>1 hour or less</option>
+                            {% if let Some(extra) = form.extra_max_time %}<option value="{{ extra.value }}" selected>{{ extra.label }}</option>{% endif %}
                         </select>
                     </label>
                     <label class="flex flex-col gap-1">
@@ -96,6 +97,7 @@ Search by field using <code class="bg-gray-100 px-1 rounded">tags:</code>, <code
                             <option value="easy"{% if form.difficulty == "easy" %} selected{% endif %}>Easy</option>
                             <option value="medium"{% if form.difficulty == "medium" %} selected{% endif %}>Medium</option>
                             <option value="hard"{% if form.difficulty == "hard" %} selected{% endif %}>Hard</option>
+                            {% if let Some(extra) = form.extra_difficulty %}<option value="{{ extra.value }}" selected>{{ extra.label }}</option>{% endif %}
                         </select>
                     </label>
                     <label class="flex flex-col gap-1">
