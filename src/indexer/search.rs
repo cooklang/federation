@@ -14,7 +14,7 @@ use tantivy::query::{
 };
 use tantivy::schema::IndexRecordOption;
 use tantivy::tokenizer::TokenStream;
-use tantivy::{doc, DocAddress, Index, IndexReader, IndexWriter, Order, ReloadPolicy, Term};
+use tantivy::{doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 use tracing::{debug, info};
 
 pub struct SearchIndex {
@@ -337,13 +337,32 @@ impl SearchIndex {
                 )
                 .map_err(|e| Error::Search(format!("Search failed: {e}")))?,
             SortOrder::Newest => {
+                // `order_by_fast_field` alone breaks ties by physical doc
+                // order, which a background merge can reshuffle: two recipes
+                // indexed in the same second could swap pages after a merge.
+                // Tweak the score to `(indexed_at, id)` instead, so ties fall
+                // back to `id` — stable, and already a FAST field.
                 let (docs, total) = searcher
                     .search(
                         &*tantivy_query,
                         &(
-                            TopDocs::with_limit(limit)
-                                .and_offset(offset)
-                                .order_by_fast_field::<i64>("indexed_at", Order::Desc),
+                            TopDocs::with_limit(limit).and_offset(offset).tweak_score(
+                                move |segment_reader: &tantivy::SegmentReader| {
+                                    let indexed_at_reader = segment_reader
+                                        .fast_fields()
+                                        .i64("indexed_at")
+                                        .unwrap()
+                                        .first_or_default_col(0);
+                                    let id_reader = segment_reader
+                                        .fast_fields()
+                                        .i64("id")
+                                        .unwrap()
+                                        .first_or_default_col(0);
+                                    move |doc: tantivy::DocId, _original_score: tantivy::Score| {
+                                        (indexed_at_reader.get_val(doc), id_reader.get_val(doc))
+                                    }
+                                },
+                            ),
                             Count,
                         ),
                     )
@@ -1874,5 +1893,80 @@ mod filter_tests {
             .unwrap();
         assert!(results.results.is_empty());
         assert_eq!(results.total, 4);
+    }
+
+    #[test]
+    fn newest_tie_break_is_stable_across_segment_boundaries() {
+        // Two commits create two segments. All five recipes share the same
+        // `indexed_at`, so the tie-break (by `id`, descending) must not
+        // depend on which segment a recipe landed in, or on doc order within
+        // a segment.
+        let dir = tempdir().unwrap();
+        let index = SearchIndex::new(dir.path()).unwrap();
+
+        let same_day_spec = |id: i64| Spec {
+            id,
+            title: "Same Day Recipe",
+            feed_id: 1,
+            tags: &[],
+            ingredients: &[],
+            total_time: None,
+            servings: None,
+            difficulty: None,
+            locale: Some("en"),
+            created_day: 1,
+        };
+        let index_one = |writer: &mut IndexWriter, id: i64| {
+            let extras = IndexExtras {
+                file_path: None,
+                tags: Vec::new(),
+                ingredients: Vec::new(),
+                feed_title: None,
+            };
+            index
+                .index_recipe_full(writer, &recipe(&same_day_spec(id)), &extras)
+                .unwrap();
+        };
+
+        // First segment: recipes 1-3.
+        {
+            let mut writer = index.writer().unwrap();
+            for id in [1, 2, 3] {
+                index_one(&mut writer, id);
+            }
+            index.commit(&mut writer).unwrap();
+        }
+        // Second segment: recipes 4-5, written and committed separately.
+        {
+            let mut writer = index.writer().unwrap();
+            for id in [4, 5] {
+                index_one(&mut writer, id);
+            }
+            index.commit(&mut writer).unwrap();
+        }
+
+        let f = Fixture { index, _dir: dir };
+
+        let page1 = newest_ids(&f, "", 1, 2);
+        let page2 = newest_ids(&f, "", 2, 2);
+        let page3 = newest_ids(&f, "", 3, 2);
+
+        let mut all: Vec<i64> = page1
+            .iter()
+            .chain(page2.iter())
+            .chain(page3.iter())
+            .copied()
+            .collect();
+        all.sort();
+        assert_eq!(
+            all,
+            vec![1, 2, 3, 4, 5],
+            "paging must visit every tied recipe exactly once across segments"
+        );
+
+        // Tied on `indexed_at`, so the tie-break falls back to `id` descending.
+        assert_eq!(page1, vec![5, 4]);
+        assert_eq!(page2, vec![3, 2]);
+        assert_eq!(page3, vec![1]);
     }
 }
