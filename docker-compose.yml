@@ -3,7 +3,9 @@ services:
     image: ghcr.io/cooklang/federation:0.4.2
     build: .
     ports:
-      - "${PORT:-3100}:${PORT:-3100}"
+      # Loopback only: nginx (behind Cloudflare) fronts it. Docker-published
+      # ports bypass firewalld, so 0.0.0.0 would expose it directly.
+      - "127.0.0.1:${PORT:-3100}:${PORT:-3100}"
     env_file:
       - .env
     volumes:
