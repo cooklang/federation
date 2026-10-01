@@ -54,8 +54,8 @@ pub fn parse_feed(content: &str) -> Result<ParsedFeed> {
     let author = feed
         .authors
         .first()
-        .map(|a| a.name.clone())
-        .or_else(|| feed.contributors.first().map(|c| c.name.clone()));
+        .and_then(|a| a.name.clone())
+        .or_else(|| feed.contributors.first().and_then(|c| c.name.clone()));
 
     let updated = feed.updated;
 
