@@ -35,7 +35,7 @@ RUN ./tailwindcss -i ./styles/input.css -o ./src/web/static/css/output.css --min
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:12.15-slim
+FROM debian:13.7-slim
 
 # Install required runtime dependencies
 RUN apt-get update && apt-get install -y \
