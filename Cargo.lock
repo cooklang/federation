@@ -481,20 +481,22 @@ dependencies = [
 
 [[package]]
 name = "cooklang"
-version = "0.17.1"
+version = "0.18.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb47b181d3374889527492659c9c8a1a21db41530a467608d339b23c3b97328e"
+checksum = "fa816a0452383c8d2bdab659df49c3ca0c86a0ca85699587bcb878d4ba174ebf"
 dependencies = [
  "bitflags",
  "codesnake",
  "enum-map",
  "finl_unicode",
+ "indexmap",
  "serde",
  "serde_yaml",
  "smallvec",
  "strum",
  "thiserror 2.0.17",
  "toml",
+ "toml_edit",
  "tracing",
  "unicase",
  "unicode-width",
@@ -1504,6 +1506,8 @@ checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.0",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -3515,6 +3519,7 @@ version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
 dependencies = [
+ "indexmap",
  "serde",
  "serde_spanned",
  "toml_datetime",
