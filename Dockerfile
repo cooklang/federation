@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:bookworm AS builder
+FROM rust:1.98.1-bookworm AS builder
 
 WORKDIR /app
 
@@ -35,7 +35,7 @@ RUN ./tailwindcss -i ./styles/input.css -o ./src/web/static/css/output.css --min
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM debian:12.15-slim
 
 # Install required runtime dependencies
 RUN apt-get update && apt-get install -y \
