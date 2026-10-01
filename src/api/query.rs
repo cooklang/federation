@@ -1,6 +1,5 @@
 //! Query-string extractor whose rejections are validation errors.
 
-use axum::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use serde::de::DeserializeOwned;
@@ -15,7 +14,6 @@ use crate::error::Error;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ValidatedQuery<T>(pub T);
 
-#[async_trait]
 impl<T, S> FromRequestParts<S> for ValidatedQuery<T>
 where
     T: DeserializeOwned,

@@ -57,11 +57,11 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
         .route("/search", get(api_handlers::search_recipes))
         .route("/facets", get(api_handlers::get_facets))
         // Recipes
-        .route("/recipes/:id", get(api_handlers::get_recipe))
-        .route("/recipes/:id/download", get(api_handlers::download_recipe))
+        .route("/recipes/{id}", get(api_handlers::get_recipe))
+        .route("/recipes/{id}/download", get(api_handlers::download_recipe))
         // Feeds (read-only)
         .route("/feeds", get(api_handlers::list_feeds))
-        .route("/feeds/:id", get(api_handlers::get_feed))
+        .route("/feeds/{id}", get(api_handlers::get_feed))
         // Stats
         .route("/stats", get(api_handlers::get_stats))
         .with_state(state.clone());
@@ -77,7 +77,6 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
                 .key_extractor(ClientIpKeyExtractor)
                 .period(governor_period(settings.server.api_rate_limit))
                 .burst_size(governor_burst(settings.server.api_rate_limit))
-                .error_handler(rate_limit_error_response)
                 .finish()
                 .expect("governor period and burst size are non-zero"),
         );
@@ -85,9 +84,8 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
             limiter.retain_recent();
             limiter.len()
         });
-        let governor_layer = GovernorLayer {
-            config: governor_conf,
-        };
+        let governor_layer =
+            GovernorLayer::new(governor_conf).error_handler(rate_limit_error_response);
         api_routes = api_routes.layer(governor_layer);
     }
 
@@ -98,9 +96,9 @@ pub fn create_router(state: AppState, settings: &Settings) -> Router {
         .route("/", get(web_handlers::index))
         .route("/browse", get(web_handlers::browse_page))
         .route("/recipes", get(web_handlers::recipes_redirect))
-        .route("/recipes/:id", get(web_handlers::recipe_detail))
+        .route("/recipes/{id}", get(web_handlers::recipe_detail))
         .route("/feeds", get(web_handlers::feeds_page))
-        .route("/feeds/:id/recipes", get(web_handlers::feed_recipes_page))
+        .route("/feeds/{id}/recipes", get(web_handlers::feed_recipes_page))
         .route("/about", get(web_handlers::about_page))
         .route("/validate", get(web_handlers::validate_page))
         .route("/sitemap.xml", get(crate::web::seo::sitemap_xml))

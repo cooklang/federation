@@ -13,7 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # Web framework
-axum = "0.7"
+axum = "0.8"
 tokio = { version = "1", features = [
     "rt-multi-thread",  # Multi-threaded runtime
     "macros",           # #[tokio::main] and #[tokio::test]
@@ -25,8 +25,7 @@ tokio = { version = "1", features = [
 ] }
 tower = { version = "0.4", features = ["util", "timeout"] }
 tower-http = { version = "0.6", features = ["fs", "trace", "cors", "compression-gzip", "limit", "set-header"] }
-tower_governor = "0.4"
-tower-cookies = "0.10"
+tower_governor = "0.8"
 
 # Feed parsing
 feed-rs = "2.1"
@@ -59,7 +58,6 @@ serde_urlencoded = "0.7"
 
 # Templates
 askama = "0.12"
-askama_axum = "0.4"
 
 # CLI
 clap = { version = "4.0", features = ["derive", "env"] }
