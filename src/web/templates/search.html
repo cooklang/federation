@@ -128,10 +128,10 @@ Search by field using <code class="bg-gray-100 px-1 rounded">tags:</code>, <code
 
             <details class="sm:hidden mt-3 text-xs text-gray-500">
                 <summary class="cursor-pointer select-none text-orange-700 font-medium">Search tips</summary>
-                <p class="mt-2 leading-relaxed">{% call search_tips() %}</p>
+                <p class="mt-2 leading-relaxed">{% call search_tips() %}{% endcall %}</p>
             </details>
             <p class="hidden sm:block mt-2 px-4 text-xs text-gray-500">
-                {% call search_tips() %}
+                {% call search_tips() %}{% endcall %}
             </p>
         </form>
     </div>
