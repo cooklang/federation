@@ -25,7 +25,11 @@ pub fn calculate_content_hash(title: &str, content: Option<&str>) -> String {
     }
 
     // Return hex string
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Normalize title for consistent hashing
