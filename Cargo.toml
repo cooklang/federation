@@ -57,7 +57,7 @@ serde_path_to_error = "0.1"
 serde_urlencoded = "0.7"
 
 # Templates
-askama = "0.12"
+askama = "0.16"
 
 # CLI
 clap = { version = "4.0", features = ["derive", "env"] }

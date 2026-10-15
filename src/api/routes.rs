@@ -759,7 +759,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         // Askama HTML-escapes the `&` separators of the interpolated query.
         assert!(
-            html.contains("?q=garlic&amp;tags=dinner&amp;sort=newest&page=2"),
+            html.contains("?q=garlic&#38;tags=dinner&#38;sort=newest&page=2"),
             "{html}"
         );
 
@@ -771,11 +771,11 @@ mod tests {
         // Values are URL-encoded in links and HTML-escaped in the form.
         let (_, html) = get_text(&state, "/?q=garlic&exclude_ingredients=a%26b%20c").await;
         assert!(
-            html.contains(r#"name="exclude_ingredients" value="a&amp;b c""#),
+            html.contains(r#"name="exclude_ingredients" value="a&#38;b c""#),
             "{html}"
         );
         assert!(
-            html.contains("?q=garlic&amp;exclude_ingredients=a%26b%20c&page=2"),
+            html.contains("?q=garlic&#38;exclude_ingredients=a%26b%20c&page=2"),
             "{html}"
         );
     }
@@ -793,7 +793,7 @@ mod tests {
         // The user's input is kept, escaped.
         assert!(html.contains(r#"name="q""#));
         assert!(html.contains(r#"value="pasta""#));
-        assert!(html.contains(r#"name="tags" value="&lt;b&gt;dinner""#));
+        assert!(html.contains(r#"name="tags" value="&#60;b&#62;dinner""#));
         assert!(!html.contains("<b>dinner"));
         // An HTML page, not the API's JSON error body.
         assert!(!html.trim_start().starts_with('{'));
