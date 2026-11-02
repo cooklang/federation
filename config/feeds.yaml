@@ -1604,7 +1604,15 @@ feeds:
     notes: "Found via GitHub search (3 recipes, ⭐ 0)"
     added_by: "dubadub"
     added_at: "2026-09-09"
-
+  - url: "https://github.com/YOUR_USERNAME/chowturner-recipes"
+    title: "Matt's Gluten-Free Recipes"
+    feed_type: github
+    branch: "main"
+    enabled: true
+    tags: [cookbook, github, gluten-free]
+    notes: "Gluten-free recipes with one-serving quantities"
+    added_by: "@YOUR_USERNAME"
+    added_at: "YYYY-MM-DD"
 
 
 # Validation configuration
