@@ -12,7 +12,7 @@ use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{
     BooleanQuery, ConstScoreQuery, Occur, PhraseQuery, Query, QueryParser, RangeQuery, TermQuery,
 };
-use tantivy::schema::IndexRecordOption;
+use tantivy::schema::{IndexRecordOption, Value};
 use tantivy::tokenizer::TokenStream;
 use tantivy::{doc, DocAddress, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 use tracing::{debug, info};
@@ -386,7 +386,12 @@ impl SearchIndex {
             SortOrder::Relevance => searcher
                 .search(
                     &*tantivy_query,
-                    &(TopDocs::with_limit(limit).and_offset(offset), Count),
+                    &(
+                        TopDocs::with_limit(limit)
+                            .and_offset(offset)
+                            .order_by_score(),
+                        Count,
+                    ),
                 )
                 .map_err(|e| Error::Search(format!("Search failed: {e}")))?,
             SortOrder::Newest => {
@@ -473,22 +478,19 @@ impl SearchIndex {
         }
 
         if let Some(max_time) = filters.max_time {
-            let range = RangeQuery::new_i64_bounds(
-                "total_time".to_string(),
+            let range = RangeQuery::new(
                 Bound::Unbounded,
-                Bound::Included(max_time),
+                Bound::Included(Term::from_field_i64(self.schema.total_time, max_time)),
             );
             clauses.push((Occur::Must, unscored(Box::new(range))));
         }
 
         if filters.min_servings.is_some() || filters.max_servings.is_some() {
-            let lower = filters
-                .min_servings
-                .map_or(Bound::Unbounded, Bound::Included);
-            let upper = filters
-                .max_servings
-                .map_or(Bound::Unbounded, Bound::Included);
-            let range = RangeQuery::new_i64_bounds("servings".to_string(), lower, upper);
+            let servings =
+                |value| Bound::Included(Term::from_field_i64(self.schema.servings, value));
+            let lower = filters.min_servings.map_or(Bound::Unbounded, servings);
+            let upper = filters.max_servings.map_or(Bound::Unbounded, servings);
+            let range = RangeQuery::new(lower, upper);
             clauses.push((Occur::Must, unscored(Box::new(range))));
         }
 
@@ -599,18 +601,12 @@ impl SearchIndex {
 
 /// First stored string value of `field`, if any.
 fn stored_str(doc: &tantivy::TantivyDocument, field: tantivy::schema::Field) -> Option<String> {
-    match doc.get_first(field)? {
-        tantivy::schema::OwnedValue::Str(s) => Some(s.to_string()),
-        _ => None,
-    }
+    doc.get_first(field)?.as_str().map(str::to_string)
 }
 
 /// First stored i64 value of `field`, if any.
 fn stored_i64(doc: &tantivy::TantivyDocument, field: tantivy::schema::Field) -> Option<i64> {
-    match doc.get_first(field)? {
-        tantivy::schema::OwnedValue::I64(value) => Some(*value),
-        _ => None,
-    }
+    doc.get_first(field)?.as_i64()
 }
 
 /// Wrap a filter so it contributes nothing to the relevance score.
@@ -775,7 +771,7 @@ mod tests {
 
         // Verify the document has the updated title
         let top_docs = searcher
-            .search(&all_query, &TopDocs::with_limit(1))
+            .search(&all_query, &TopDocs::with_limit(1).order_by_score())
             .unwrap();
         assert_eq!(top_docs.len(), 1, "Should have exactly 1 document");
 
@@ -789,12 +785,12 @@ mod tests {
         );
 
         // Verify it has the correct ID
-        let id_value = doc.get_first(index.schema.id).unwrap();
-        if let tantivy::schema::OwnedValue::I64(id) = id_value {
-            assert_eq!(*id, 123, "Document should have ID 123");
-        } else {
-            panic!("ID field should be I64");
-        }
+        let id = doc
+            .get_first(index.schema.id)
+            .unwrap()
+            .as_i64()
+            .expect("ID field should be I64");
+        assert_eq!(id, 123, "Document should have ID 123");
     }
 
     fn test_recipe(id: i64, title: &str, locale: Option<&str>) -> Recipe {
@@ -1329,7 +1325,10 @@ mod card_tests {
 
         let searcher = index.reader.searcher();
         let top = searcher
-            .search(&tantivy::query::AllQuery, &TopDocs::with_limit(1))
+            .search(
+                &tantivy::query::AllQuery,
+                &TopDocs::with_limit(1).order_by_score(),
+            )
             .unwrap();
         let doc = searcher.doc::<tantivy::TantivyDocument>(top[0].1).unwrap();
 
@@ -1380,7 +1379,10 @@ mod card_tests {
 
         let searcher = index.reader.searcher();
         let top = searcher
-            .search(&tantivy::query::AllQuery, &TopDocs::with_limit(1))
+            .search(
+                &tantivy::query::AllQuery,
+                &TopDocs::with_limit(1).order_by_score(),
+            )
             .unwrap();
         let doc = searcher.doc::<tantivy::TantivyDocument>(top[0].1).unwrap();
 
@@ -1408,7 +1410,10 @@ mod card_tests {
 
         let searcher = index.reader.searcher();
         let top = searcher
-            .search(&tantivy::query::AllQuery, &TopDocs::with_limit(1))
+            .search(
+                &tantivy::query::AllQuery,
+                &TopDocs::with_limit(1).order_by_score(),
+            )
             .unwrap();
         let doc = searcher.doc::<tantivy::TantivyDocument>(top[0].1).unwrap();
 
