@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/cooklang/federation:0.4.3
+    image: ghcr.io/cooklang/federation:0.5.0
     build: .
     ports:
       # Loopback only: nginx (behind Cloudflare) fronts it. Docker-published
