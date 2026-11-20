@@ -1607,6 +1607,17 @@ feeds:
 
 
 
+  - url: "https://chineserecipes.xyz/cooklang.xml"
+    title: "Chinese Kitchen Atlas"
+    feed_type: web
+    enabled: true
+    tags:
+      - cookbook
+      - chinese
+    notes: "English-language Chinese recipes with ingredient weights and US grocery guidance."
+    added_by: "@So-mysterious"
+    added_at: "2026-11-20"
+
 # Validation configuration
 validation:
   max_feeds: 1000
