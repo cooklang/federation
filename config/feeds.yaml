@@ -1618,6 +1618,18 @@ feeds:
     added_by: "@So-mysterious"
     added_at: "2026-11-20"
 
+  - url: "https://github.com/thoukydides/recipes"
+    title: "Thouky's Cookbook"
+    feed_type: github
+    branch: "master"
+    enabled: true
+    tags:
+      - cookbook
+      - github
+    notes: "Personal cookbook of recipes from my family and other sources"
+    added_by: "@thoukydides"
+    added_at: "2026-11-23"
+
 # Validation configuration
 validation:
   max_feeds: 1000
